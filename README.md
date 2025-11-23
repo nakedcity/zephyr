@@ -31,3 +31,8 @@ flowchart LR
 2) `uvicorn server.main:app --reload` (or use the Dockerfile)
 
 Key configs live in `config/config.yaml`—set per-model `repo`, `device`, `quantize`, and `owner`; adjust `cache` and `preload` to fit your deployment. 
+
+## Contributing
+- Fork the repo and work on a branch in your fork.
+- Open a pull request to `main`; CI will run and we review/merge.
+- Direct pushes to `main` are reserved for the repo owner; force-push and branch deletion are disabled.
