@@ -1,8 +1,8 @@
 import os
 from collections import OrderedDict
 from huggingface_hub import hf_hub_download
-from embedder import ONNXEmbedder
-from quantizer import quantize_model
+from embeddings.embedder import ONNXEmbedder
+from embeddings.quantizer import quantize_model
 
 class ModelCache:
     def __init__(self, config):

@@ -22,4 +22,4 @@ RUN mkdir -p cache
 EXPOSE 8080
 
 # Run server
-CMD ["uv", "run", "python", "server.py"]
+CMD ["uv", "run", "python", "-m", "server.main"]

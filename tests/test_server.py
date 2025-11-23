@@ -1,7 +1,8 @@
 from fastapi.testclient import TestClient
-from server import app
-from unittest.mock import MagicMock, patch
+from server.main import app
+from unittest.mock import patch, MagicMock
 import pytest
+import numpy as np
 
 def test_health():
     with TestClient(app) as client:
@@ -10,7 +11,7 @@ def test_health():
         assert response.json() == {"status": "ok"}
 
 def test_list_models():
-    with patch('server.ModelCache') as MockCache:
+    with patch('server.main.ModelCache') as MockCache:
         mock_instance = MockCache.return_value
         with TestClient(app) as client:
             response = client.get("/v1/models")
@@ -27,7 +28,7 @@ def test_create_embedding():
     mock_cache = MagicMock()
     mock_cache.get_model.return_value = mock_embedder
     
-    with patch('server.ModelCache') as MockCache:
+    with patch('server.main.ModelCache') as MockCache:
         MockCache.return_value = mock_cache
         
         with TestClient(app) as client:
@@ -41,15 +42,15 @@ def test_create_embedding():
             assert json_resp['data'][0]['embedding'] == [0.1, 0.2, 0.3]
 
 def test_quantization_workflow():
-    with patch('model_cache.hf_hub_download') as mock_download, \
-         patch('model_cache.ONNXEmbedder') as MockEmbedder, \
-         patch('model_cache.quantize_model') as mock_quantize, \
+    with patch('embeddings.model_cache.hf_hub_download') as mock_download, \
+         patch('embeddings.model_cache.ONNXEmbedder') as MockEmbedder, \
+         patch('embeddings.model_cache.quantize_model') as mock_quantize, \
          patch('os.path.exists') as mock_exists:
         
         mock_download.return_value = "/tmp/model.onnx"
         mock_exists.side_effect = lambda p: p == "/tmp/model.onnx"
         
-        from model_cache import ModelCache
+        from embeddings.model_cache import ModelCache
         from omegaconf import OmegaConf
         
         conf = OmegaConf.create({
@@ -74,12 +75,12 @@ def test_quantization_workflow():
         assert kwargs['device'] == 'cpu'
 
 def test_device_selection_gpu_success():
-    with patch('model_cache.hf_hub_download') as mock_download, \
-         patch('model_cache.ONNXEmbedder') as MockEmbedder:
+    with patch('embeddings.model_cache.hf_hub_download') as mock_download, \
+         patch('embeddings.model_cache.ONNXEmbedder') as MockEmbedder:
         
         mock_download.return_value = "/tmp/model.onnx"
         
-        from model_cache import ModelCache
+        from embeddings.model_cache import ModelCache
         from omegaconf import OmegaConf
         
         conf = OmegaConf.create({
@@ -106,14 +107,14 @@ def test_device_selection_gpu_fail():
     # We need to mock ONNXEmbedder to simulate the initialization failure
     # But wait, ONNXEmbedder is what we are testing. We should mock ort.InferenceSession
     
-    with patch('embedder.ort.InferenceSession') as MockSession, \
-         patch('embedder.Tokenizer'):
+    with patch('embeddings.embedder.ort.InferenceSession') as MockSession, \
+         patch('embeddings.embedder.Tokenizer'):
         
         # Simulate CPU fallback
         mock_session = MockSession.return_value
         mock_session.get_providers.return_value = ['CPUExecutionProvider']
         
-        from embedder import ONNXEmbedder
+        from embeddings.embedder import ONNXEmbedder
         
         with pytest.raises(RuntimeError) as excinfo:
             ONNXEmbedder("model.onnx", "tokenizer.json", device="gpu")

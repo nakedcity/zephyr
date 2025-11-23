@@ -1,5 +1,5 @@
 [project]
-name = "pure-onnx-embeddings"
+name = "zephyr"
 version = "0.1.0"
 description = "Pure ONNX Embedding Server with zero PyTorch dependency"
 readme = "README.md"

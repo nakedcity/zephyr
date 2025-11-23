@@ -3,14 +3,14 @@ from contextlib import asynccontextmanager
 import time
 from typing import List
 
-from config_loader import load_config
-from model_cache import ModelCache
-from models import EmbeddingRequest, EmbeddingResponse, EmbeddingObject, Usage, ModelList, ModelCard
+from config.loader import load_config
+from embeddings.model_cache import ModelCache
+from server.schemas import EmbeddingRequest, EmbeddingResponse, EmbeddingObject, ModelList, ModelCard, Usage
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    config = load_config("config.yaml")
+    config = load_config("config/config.yaml")
     cache = ModelCache(config)
     
     # Pre-download models in preload list
