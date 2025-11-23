@@ -1,4 +1,5 @@
 import os
+import time
 from collections import OrderedDict
 from huggingface_hub import hf_hub_download
 from embeddings.embedder import ONNXEmbedder
@@ -9,7 +10,10 @@ class ModelCache:
         self.config = config
         self.cache_dir = config.cache.directory
         self.max_loaded = config.cache.max_loaded_models
-        self.loaded_models = OrderedDict() # LRU cache: key=model_id, value=ONNXEmbedder
+        # LRU cache: key=model_id, value=ONNXEmbedder
+        self.loaded_models = OrderedDict()
+        # Track metadata like created timestamp per loaded model
+        self.loaded_metadata = {}
 
     def get_model(self, model_id: str) -> ONNXEmbedder:
         if model_id not in self.config.models:
@@ -22,7 +26,8 @@ class ModelCache:
 
         # Evict if full
         if len(self.loaded_models) >= self.max_loaded:
-            self.loaded_models.popitem(last=False)
+            evicted_id, _ = self.loaded_models.popitem(last=False)
+            self.loaded_metadata.pop(evicted_id, None)
 
         # Load model
         model_conf = self.config.models[model_id]
@@ -62,7 +67,13 @@ class ModelCache:
 
         embedder = ONNXEmbedder(model_path, tokenizer_path, max_length=model_conf.max_tokens, device=device)
         self.loaded_models[model_id] = embedder
+        self.loaded_metadata[model_id] = {"created": int(time.time())}
         return embedder
+
+    def get_created_timestamp(self, model_id: str) -> int:
+        """Return the UNIX timestamp (seconds) when the model was loaded, or 0 if not loaded."""
+        return self.loaded_metadata.get(model_id, {}).get("created", 0)
 
     def clear_all(self):
         self.loaded_models.clear()
+        self.loaded_metadata.clear()

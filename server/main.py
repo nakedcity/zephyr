@@ -77,9 +77,19 @@ async def create_embeddings(request: EmbeddingRequest):
 @app.get("/v1/models", response_model=ModelList)
 async def list_models():
     config = app.state.config
+    cache: ModelCache = app.state.cache
     models = []
-    for model_id in config.models:
-        models.append(ModelCard(id=model_id))
+    for model_id, model_conf in config.models.items():
+        owner = getattr(model_conf, "owner", None) or getattr(model_conf, "owned_by", None) or "unknown"
+
+        created = 0
+        if hasattr(cache, "get_created_timestamp"):
+            try:
+                created = int(cache.get_created_timestamp(model_id))
+            except Exception:
+                created = 0
+
+        models.append(ModelCard(id=model_id, owned_by=owner, created=created))
     return ModelList(data=models)
 
 @app.get("/health")
