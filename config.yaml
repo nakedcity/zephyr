@@ -1,0 +1,24 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+cache:
+  directory: "./cache"
+  max_loaded_models: 2
+
+models:
+  bge-small-en-v1.5:
+    repo: "Xenova/bge-small-en-v1.5"
+    dimension: 384
+    max_tokens: 512
+    quantize: false
+    device: "gpu"
+  all-MiniLM-L6-v2:
+    repo: "Xenova/all-MiniLM-L6-v2"
+    dimension: 384
+    max_tokens: 256
+    quantize: true
+    device: "cpu"
+
+preload:
+  - bge-small-en-v1.5
