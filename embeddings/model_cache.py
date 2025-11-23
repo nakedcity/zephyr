@@ -70,6 +70,18 @@ class ModelCache:
         self.loaded_metadata[model_id] = {"created": int(time.time())}
         return embedder
 
+    def unload_model(self, model_id: str) -> bool:
+        """
+        Remove a loaded model from memory. Returns True if the model was loaded and removed.
+        """
+        removed = False
+        if model_id in self.loaded_models:
+            self.loaded_models.pop(model_id, None)
+            removed = True
+        if model_id in self.loaded_metadata:
+            self.loaded_metadata.pop(model_id, None)
+        return removed
+
     def get_created_timestamp(self, model_id: str) -> int:
         """Return the UNIX timestamp (seconds) when the model was loaded, or 0 if not loaded."""
         return self.loaded_metadata.get(model_id, {}).get("created", 0)

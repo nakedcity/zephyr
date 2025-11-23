@@ -27,6 +27,11 @@ class ModelCard(BaseModel):
     created: int = 0
     owned_by: str = "pure-onnx"
 
+class ModelDeletionResponse(BaseModel):
+    id: str
+    object: str = "model"
+    deleted: bool
+
 class ModelList(BaseModel):
     object: str = "list"
     data: List[ModelCard]

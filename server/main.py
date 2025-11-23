@@ -10,7 +10,15 @@ from fastapi import FastAPI, HTTPException
 
 from config.loader import load_config
 from embeddings.model_cache import ModelCache
-from server.schemas import EmbeddingRequest, EmbeddingResponse, EmbeddingObject, ModelList, ModelCard, Usage
+from server.schemas import (
+    EmbeddingRequest,
+    EmbeddingResponse,
+    EmbeddingObject,
+    ModelList,
+    ModelCard,
+    ModelDeletionResponse,
+    Usage,
+)
 
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 
@@ -91,6 +99,52 @@ async def list_models():
 
         models.append(ModelCard(id=model_id, owned_by=owner, created=created))
     return ModelList(data=models)
+
+@app.get("/v1/models/{model_id}", response_model=ModelCard)
+async def retrieve_model(model_id: str):
+    config = app.state.config
+    cache: ModelCache = app.state.cache
+
+    if model_id not in config.models:
+        raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
+
+    # Attempt to load the model (or get from cache if already loaded)
+    try:
+        cache.get_model(model_id)
+    except ValueError:
+        # Should not happen because we already verified config
+        raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
+
+    # Prepare response metadata
+    model_conf = config.models[model_id]
+    owner = getattr(model_conf, "owner", None) or getattr(model_conf, "owned_by", None) or "unknown"
+    created = 0
+    if hasattr(cache, "get_created_timestamp"):
+        try:
+            created = int(cache.get_created_timestamp(model_id))
+        except Exception:
+            created = 0
+
+    return ModelCard(id=model_id, owned_by=owner, created=created)
+
+@app.delete("/v1/models/{model_id}", response_model=ModelDeletionResponse)
+async def delete_model(model_id: str):
+    config = app.state.config
+    cache: ModelCache = app.state.cache
+
+    if model_id not in config.models:
+        raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
+
+    deleted = False
+    if hasattr(cache, "unload_model"):
+        try:
+            deleted = bool(cache.unload_model(model_id))
+        except Exception:
+            deleted = False
+
+    return ModelDeletionResponse(id=model_id, deleted=deleted)
 
 @app.get("/health")
 async def health():

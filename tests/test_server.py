@@ -120,3 +120,39 @@ def test_device_selection_gpu_fail():
             ONNXEmbedder("model.onnx", "tokenizer.json", device="gpu")
         
         assert "GPU requested but CUDAExecutionProvider not available" in str(excinfo.value)
+
+def test_retrieve_model_loads_and_returns_metadata():
+    with patch('server.main.ModelCache') as MockCache:
+        mock_cache = MockCache.return_value
+        mock_cache.get_model.return_value = MagicMock()
+        mock_cache.get_created_timestamp.return_value = 1700000000
+
+        with TestClient(app) as client:
+            resp = client.get("/v1/models/bge-small-en-v1.5")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data['id'] == 'bge-small-en-v1.5'
+            assert data['object'] == 'model'
+            assert data['owned_by'] == 'Xenova'
+            assert data['created'] == 1700000000
+        mock_cache.get_model.assert_called_with('bge-small-en-v1.5')
+
+def test_delete_model_unloads():
+    with patch('server.main.ModelCache') as MockCache:
+        mock_cache = MockCache.return_value
+        mock_cache.unload_model.return_value = True
+
+        with TestClient(app) as client:
+            resp = client.delete("/v1/models/all-MiniLM-L6-v2")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data['id'] == 'all-MiniLM-L6-v2'
+            assert data['object'] == 'model'
+            assert data['deleted'] is True
+        mock_cache.unload_model.assert_called_with('all-MiniLM-L6-v2')
+
+def test_retrieve_unknown_model_returns_404():
+    with TestClient(app) as client:
+        resp = client.get("/v1/models/does-not-exist")
+        assert resp.status_code == 404
+        assert "not found" in resp.json()['detail']
