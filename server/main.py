@@ -73,6 +73,8 @@ app = FastAPI(lifespan=lifespan)
 
 @app.post("/v1/embeddings", response_model=EmbeddingResponse)
 async def create_embeddings(request: EmbeddingRequest, _: bool = Security(verify_bearer_token)):
+    import time
+    
     cache: ModelCache = app.state.cache
     
     try:
@@ -86,9 +88,21 @@ async def create_embeddings(request: EmbeddingRequest, _: bool = Security(verify
     if isinstance(inputs, str):
         inputs = [inputs]
 
+    # Log batch size
+    num_inputs = len(inputs)
+    print(f"[EMBEDDING REQUEST] Received {num_inputs} texts for model '{request.model}'")
+    
+    # Get batch_size from model config, default to 64 if not specified
+    model_config = app.state.config.models.get(request.model)
+    batch_size = getattr(model_config, 'batch_size', 64)
+    
     try:
-        embeddings = embedder.predict_batched(inputs, batch_size=32)
+        start_time = time.time()
+        embeddings = embedder.predict_batched(inputs, batch_size=batch_size)
+        elapsed = time.time() - start_time
+        print(f"[EMBEDDING COMPLETE] Processed {num_inputs} texts in {elapsed:.2f}s ({num_inputs/elapsed:.1f} texts/sec) [batch_size={batch_size}]")
     except Exception as e:
+        print(f"[EMBEDDING ERROR] Failed to process {num_inputs} texts: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
 
     # Construct response

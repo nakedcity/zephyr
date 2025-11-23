@@ -17,6 +17,7 @@ models:
     max_tokens: 512
     quantize: false
     device: "gpu"
+    batch_size: 80  # Optimal for GTX 1080 8GB VRAM
     owner: "Xenova"
   all-MiniLM-L6-v2:
     repo: "Xenova/all-MiniLM-L6-v2"
@@ -24,6 +25,7 @@ models:
     max_tokens: 256
     quantize: true
     device: "cpu"
+    batch_size: 128  # CPU can handle larger batches
     owner: "Xenova"
 
 preload:
