@@ -2,6 +2,10 @@ server:
   host: "0.0.0.0"
   port: 8080
 
+authorization:
+  enabled: false
+  token_env_var: "OPEN_API_KEY"
+
 cache:
   directory: "./cache"
   max_loaded_models: 2

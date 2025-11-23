@@ -24,30 +24,31 @@ from server.schemas import (
 
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 auth_scheme = HTTPBearer(auto_error=False)
+config = load_config(CONFIG_PATH)
 
 
 def verify_bearer_token(credentials: HTTPAuthorizationCredentials = Security(auth_scheme)):
-    """
-    Validate Authorization: Bearer <token> using OPENAI_API_KEY (or API_KEY) env var.
-    Mimics OpenAI's bearer token requirement.
-    """
-    expected = os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY")
-    if not expected:
-        raise HTTPException(status_code=500, detail="Server API key not configured")
+    if config['authorization']['enabled'] is True:
+        """
+        Validate Authorization: Bearer <token> using token_env_var from authorization conf.
+        Mimics OpenAI's bearer token requirement.
+        """
+        api_token = os.getenv(config['authorization']['token_env_var'])
+        if not api_token:
+            raise HTTPException(status_code=500, detail="Server API key not configured")
 
-    if credentials is None or credentials.scheme.lower() != "bearer":
-        raise HTTPException(status_code=401, detail="Authorization header missing or invalid")
+        if credentials is None or credentials.scheme.lower() != "bearer":
+            raise HTTPException(status_code=401, detail="Authorization header missing or invalid")
 
-    token = credentials.credentials
-    if token != expected:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+        if credentials.credentials != api_token:
+            raise HTTPException(status_code=401, detail="Invalid API key")
 
     return True
+    
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    config = load_config(CONFIG_PATH)
     cache = ModelCache(config)
     
     # Pre-download models in preload list
