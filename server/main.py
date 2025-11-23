@@ -87,7 +87,7 @@ async def create_embeddings(request: EmbeddingRequest, _: bool = Security(verify
         inputs = [inputs]
 
     try:
-        embeddings = embedder.predict(inputs)
+        embeddings = embedder.predict_batched(inputs, batch_size=32)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
 

@@ -110,6 +110,24 @@ class ONNXEmbedder:
         
         return embeddings.tolist()
 
+    def predict_batched(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
+        """
+        Process texts in batches to avoid OOM errors.
+        
+        Args:
+            texts: List of text strings to embed
+            batch_size: Number of texts to process at once (default: 32)
+            
+        Returns:
+            List of embedding vectors
+        """
+        all_embeddings = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            embeddings = self.predict(batch)
+            all_embeddings.extend(embeddings)
+        return all_embeddings
+
     def mean_pooling(self, token_embeddings, attention_mask):
         # token_embeddings: [batch_size, seq_len, hidden_size]
         # attention_mask: [batch_size, seq_len]
