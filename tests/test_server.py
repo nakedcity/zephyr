@@ -3,6 +3,15 @@ from server.main import app
 from unittest.mock import patch, MagicMock
 import pytest
 import numpy as np
+import os
+
+@pytest.fixture(autouse=True)
+def set_api_key(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+
+def auth_headers():
+    return {"Authorization": "Bearer test-key"}
 
 def test_health():
     with TestClient(app) as client:
@@ -14,7 +23,7 @@ def test_list_models():
     with patch('server.main.ModelCache') as MockCache:
         mock_instance = MockCache.return_value
         with TestClient(app) as client:
-            response = client.get("/v1/models")
+            response = client.get("/v1/models", headers=auth_headers())
             assert response.status_code == 200
             data = response.json()['data']
             assert len(data) > 0
@@ -32,10 +41,12 @@ def test_create_embedding():
         MockCache.return_value = mock_cache
         
         with TestClient(app) as client:
-            response = client.post("/v1/embeddings", json={
-                "input": "hello",
-                "model": "bge-small-en-v1.5"
-            })
+            response = client.post("/v1/embeddings",
+                                   headers=auth_headers(),
+                                   json={
+                                       "input": "hello",
+                                       "model": "bge-small-en-v1.5"
+                                   })
             
             assert response.status_code == 200
             json_resp = response.json()
@@ -128,7 +139,7 @@ def test_retrieve_model_loads_and_returns_metadata():
         mock_cache.get_created_timestamp.return_value = 1700000000
 
         with TestClient(app) as client:
-            resp = client.get("/v1/models/bge-small-en-v1.5")
+            resp = client.get("/v1/models/bge-small-en-v1.5", headers=auth_headers())
             assert resp.status_code == 200
             data = resp.json()
             assert data['id'] == 'bge-small-en-v1.5'
@@ -143,7 +154,7 @@ def test_delete_model_unloads():
         mock_cache.unload_model.return_value = True
 
         with TestClient(app) as client:
-            resp = client.delete("/v1/models/all-MiniLM-L6-v2")
+            resp = client.delete("/v1/models/all-MiniLM-L6-v2", headers=auth_headers())
             assert resp.status_code == 200
             data = resp.json()
             assert data['id'] == 'all-MiniLM-L6-v2'
@@ -153,6 +164,12 @@ def test_delete_model_unloads():
 
 def test_retrieve_unknown_model_returns_404():
     with TestClient(app) as client:
-        resp = client.get("/v1/models/does-not-exist")
+        resp = client.get("/v1/models/does-not-exist", headers=auth_headers())
         assert resp.status_code == 404
         assert "not found" in resp.json()['detail']
+
+def test_missing_auth_gets_401():
+    with TestClient(app) as client:
+        resp = client.get("/v1/models")
+        assert resp.status_code == 401
+        assert "Authorization" in resp.json()["detail"]

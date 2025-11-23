@@ -6,7 +6,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import os
 
 from config.loader import load_config
 from embeddings.model_cache import ModelCache
@@ -21,6 +23,26 @@ from server.schemas import (
 )
 
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
+auth_scheme = HTTPBearer(auto_error=False)
+
+
+def verify_bearer_token(credentials: HTTPAuthorizationCredentials = Security(auth_scheme)):
+    """
+    Validate Authorization: Bearer <token> using OPENAI_API_KEY (or API_KEY) env var.
+    Mimics OpenAI's bearer token requirement.
+    """
+    expected = os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY")
+    if not expected:
+        raise HTTPException(status_code=500, detail="Server API key not configured")
+
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Authorization header missing or invalid")
+
+    token = credentials.credentials
+    if token != expected:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    return True
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -49,7 +71,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 @app.post("/v1/embeddings", response_model=EmbeddingResponse)
-async def create_embeddings(request: EmbeddingRequest):
+async def create_embeddings(request: EmbeddingRequest, _: bool = Security(verify_bearer_token)):
     cache: ModelCache = app.state.cache
     
     try:
@@ -83,7 +105,7 @@ async def create_embeddings(request: EmbeddingRequest):
     )
 
 @app.get("/v1/models", response_model=ModelList)
-async def list_models():
+async def list_models(_: bool = Security(verify_bearer_token)):
     config = app.state.config
     cache: ModelCache = app.state.cache
     models = []
@@ -101,7 +123,7 @@ async def list_models():
     return ModelList(data=models)
 
 @app.get("/v1/models/{model_id}", response_model=ModelCard)
-async def retrieve_model(model_id: str):
+async def retrieve_model(model_id: str, _: bool = Security(verify_bearer_token)):
     config = app.state.config
     cache: ModelCache = app.state.cache
 
@@ -130,7 +152,7 @@ async def retrieve_model(model_id: str):
     return ModelCard(id=model_id, owned_by=owner, created=created)
 
 @app.delete("/v1/models/{model_id}", response_model=ModelDeletionResponse)
-async def delete_model(model_id: str):
+async def delete_model(model_id: str, _: bool = Security(verify_bearer_token)):
     config = app.state.config
     cache: ModelCache = app.state.cache
 
