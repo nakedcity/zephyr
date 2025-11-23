@@ -1,16 +1,23 @@
-from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
-import time
-from typing import List
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from fastapi import FastAPI, HTTPException
 
 from config.loader import load_config
 from embeddings.model_cache import ModelCache
 from server.schemas import EmbeddingRequest, EmbeddingResponse, EmbeddingObject, ModelList, ModelCard, Usage
 
+CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    config = load_config("config/config.yaml")
+    config = load_config(CONFIG_PATH)
     cache = ModelCache(config)
     
     # Pre-download models in preload list
@@ -81,5 +88,5 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    config = load_config("config.yaml")
+    config = load_config(CONFIG_PATH)
     uvicorn.run(app, host=config.server.host, port=config.server.port)
