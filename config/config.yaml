@@ -15,9 +15,9 @@ models:
     repo: "Xenova/bge-small-en-v1.5"
     dimension: 384
     max_tokens: 512
-    quantize: false
+    quantize: false  # INT8 quantization is slower on GTX 1080 (Pascal architecture)
     device: "gpu"
-    batch_size: 80  # Optimal for GTX 1080 8GB VRAM
+    batch_size: 64  # Optimal for GTX 1080 8GB VRAM with FP32
     owner: "Xenova"
   all-MiniLM-L6-v2:
     repo: "Xenova/all-MiniLM-L6-v2"
