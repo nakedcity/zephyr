@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 import sys
+import logging
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -12,6 +13,8 @@ import os
 
 from config.loader import load_config
 from embeddings.model_cache import ModelCache
+from server.logging_config import setup_logging
+from server.middleware import TraceIDMiddleware
 from server.schemas import (
     EmbeddingRequest,
     EmbeddingResponse,
@@ -25,6 +28,9 @@ from server.schemas import (
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 auth_scheme = HTTPBearer(auto_error=False)
 config = load_config(CONFIG_PATH)
+
+# Setup logging with trace ID support
+logger = setup_logging()
 
 
 def verify_bearer_token(credentials: HTTPAuthorizationCredentials = Security(auth_scheme)):
@@ -52,14 +58,14 @@ async def lifespan(app: FastAPI):
     cache = ModelCache(config)
     
     # Pre-download models in preload list
-    print("Preloading models...")
+    logger.info("Preloading models...")
     for model_id in config.preload:
         try:
-            print(f"Loading {model_id}...")
+            logger.info(f"Loading {model_id}...")
             cache.get_model(model_id)
-            print(f"Loaded {model_id}")
+            logger.info(f"Loaded {model_id}")
         except Exception as e:
-            print(f"Failed to preload {model_id}: {e}")
+            logger.error(f"Failed to preload {model_id}: {e}")
     
     app.state.cache = cache
     app.state.config = config
@@ -70,6 +76,9 @@ async def lifespan(app: FastAPI):
     cache.clear_all()
 
 app = FastAPI(lifespan=lifespan)
+
+# Add trace ID middleware
+app.add_middleware(TraceIDMiddleware)
 
 @app.post("/v1/embeddings", response_model=EmbeddingResponse)
 async def create_embeddings(request: EmbeddingRequest, _: bool = Security(verify_bearer_token)):
@@ -90,7 +99,7 @@ async def create_embeddings(request: EmbeddingRequest, _: bool = Security(verify
 
     # Log batch size
     num_inputs = len(inputs)
-    print(f"[EMBEDDING REQUEST] Received {num_inputs} texts for model '{request.model}'")
+    logger.info(f"EMBEDDING REQUEST: Received {num_inputs} texts for model '{request.model}'")
     
     # Get batch_size from model config, default to 64 if not specified
     model_config = app.state.config.models.get(request.model)
@@ -100,9 +109,9 @@ async def create_embeddings(request: EmbeddingRequest, _: bool = Security(verify
         start_time = time.time()
         embeddings = embedder.predict_batched(inputs, batch_size=batch_size)
         elapsed = time.time() - start_time
-        print(f"[EMBEDDING COMPLETE] Processed {num_inputs} texts in {elapsed:.2f}s ({num_inputs/elapsed:.1f} texts/sec) [batch_size={batch_size}]")
+        logger.info(f"EMBEDDING COMPLETE: Processed {num_inputs} texts in {elapsed:.2f}s ({num_inputs/elapsed:.1f} texts/sec) [batch_size={batch_size}]")
     except Exception as e:
-        print(f"[EMBEDDING ERROR] Failed to process {num_inputs} texts: {str(e)}")
+        logger.error(f"EMBEDDING ERROR: Failed to process {num_inputs} texts: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
 
     # Construct response
