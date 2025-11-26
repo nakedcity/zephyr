@@ -14,7 +14,7 @@ import os
 from config.loader import load_config
 from embeddings.model_cache import ModelCache
 from server.logging_config import setup_logging
-from server.middleware import TraceIDMiddleware
+from server.traceid_middleware import TraceIDMiddleware
 from server.schemas import (
     EmbeddingRequest,
     EmbeddingResponse,
