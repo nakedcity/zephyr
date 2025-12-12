@@ -107,7 +107,7 @@ async def create_embeddings(request: EmbeddingRequest, _: bool = Security(verify
     
     try:
         start_time = time.time()
-        embeddings = embedder.predict_batched(inputs, batch_size=batch_size)
+        embeddings = await embedder.predict_batched(inputs, batch_size=batch_size)
         elapsed = time.time() - start_time
         logger.info(f"EMBEDDING COMPLETE: Processed {num_inputs} texts in {elapsed:.2f}s ({num_inputs/elapsed:.1f} texts/sec) [batch_size={batch_size}]")
     except Exception as e:

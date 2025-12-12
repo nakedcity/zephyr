@@ -105,12 +105,12 @@ class ProcessManager:
         return port
 
     def _wait_for_health(self, port: int, timeout=30):
-        # We can implement a retry loop here using requests
-        import requests
+        # We can implement a retry loop here using httpx
+        import httpx
         start = time.time()
         while time.time() - start < timeout:
             try:
-                resp = requests.get(f"http://127.0.0.1:{port}/health", timeout=1)
+                resp = httpx.get(f"http://127.0.0.1:{port}/health", timeout=1)
                 if resp.status_code == 200:
                     return
             except Exception:

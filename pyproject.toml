@@ -3,7 +3,7 @@ name = "zephyr"
 version = "0.1.0"
 description = "Pure ONNX Embedding Server with zero PyTorch dependency"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi[standard]==0.124.4",
     "tokenizers==0.22.1",
@@ -11,6 +11,7 @@ dependencies = [
     "numpy==2.3.5",
     "omegaconf==2.3.0",
     "onnx==1.20.0",
+    "httpx==0.28.1",
 ]
 
 [project.optional-dependencies]

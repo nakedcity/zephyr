@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 from server.main import app
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 import pytest
 import numpy as np
 import os
@@ -32,7 +32,7 @@ def test_list_models():
 
 def test_create_embedding():
     mock_embedder = MagicMock()
-    mock_embedder.predict_batched.return_value = [[0.1, 0.2, 0.3]]
+    mock_embedder.predict_batched = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
     
     # ModelCache now returns RemoteEmbedder
     mock_cache = MagicMock()
@@ -155,28 +155,25 @@ def test_process_manager_mapping():
         
         # Test CUDA
         pm.start_worker_for_model("m1", "model.path", "tok.path")
-        cmd_cuda = mock_popen.call_args[0][0]
-        assert "--device" in cmd_cuda
-        idx = cmd_cuda.index("--device")
-        assert cmd_cuda[idx+1] == "gpu"
-        assert "--provider" in cmd_cuda
-        idx_p = cmd_cuda.index("--provider")
-        assert cmd_cuda[idx_p+1] == "cuda"
+        kwargs_cuda = mock_popen.call_args[1]
+        env_cuda = kwargs_cuda['env']
+        assert env_cuda["ZEPHYR_DEVICE"] == "gpu"
+        assert env_cuda["ZEPHYR_PROVIDER"] == "cuda"
         
         # Test ROCm
         pm.start_worker_for_model("m2", "model.path", "tok.path")
-        cmd_rocm = mock_popen.call_args[0][0]
-        assert "--provider" in cmd_rocm
-        idx_p = cmd_rocm.index("--provider")
-        assert cmd_rocm[idx_p+1] == "rocm"
+        kwargs_rocm = mock_popen.call_args[1]
+        env_rocm = kwargs_rocm['env']
+        assert env_rocm["ZEPHYR_DEVICE"] == "gpu"
+        assert env_rocm["ZEPHYR_PROVIDER"] == "rocm"
         
         # Test CPU
         pm.start_worker_for_model("m3", "model.path", "tok.path")
-        cmd_cpu = mock_popen.call_args[0][0]
-        assert "--device" in cmd_cpu
-        idx = cmd_cpu.index("--device")
-        assert cmd_cpu[idx+1] == "cpu"
-        assert "--provider" not in cmd_cpu
+        kwargs_cpu = mock_popen.call_args[1]
+        env_cpu = kwargs_cpu['env']
+        assert env_cpu["ZEPHYR_DEVICE"] == "cpu"
+        # Provider might not be set or set to None/empty
+        assert "ZEPHYR_PROVIDER" not in env_cpu or env_cpu["ZEPHYR_PROVIDER"] == "none"
 
 
 def test_retrieve_model_loads_and_returns_metadata():
