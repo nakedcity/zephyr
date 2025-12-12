@@ -62,9 +62,12 @@ class ONNXEmbedder:
                     f"Active providers: {active_providers}."
                 )
         
-    def predict(self, texts: list[str]) -> list[list[float]]:
+    def predict(self, texts: list[str]) -> tuple[list[list[float]], int]:
         # Tokenize
         encoded = self.tokenizer.encode_batch(texts)
+        
+        # Calculate total tokens (excluding padding)
+        total_tokens = sum(sum(e.attention_mask) for e in encoded)
         
         input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
         attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
@@ -93,9 +96,9 @@ class ONNXEmbedder:
         # Normalize
         embeddings = self.normalize(embeddings)
         
-        return embeddings.tolist()
+        return embeddings.tolist(), total_tokens
 
-    def predict_batched(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
+    def predict_batched(self, texts: list[str], batch_size: int = 32) -> tuple[list[list[float]], int]:
         """
         Process texts in batches to avoid OOM errors.
         
@@ -104,14 +107,16 @@ class ONNXEmbedder:
             batch_size: Number of texts to process at once (default: 32)
             
         Returns:
-            List of embedding vectors
+            Tuple of (List of embedding vectors, total_tokens)
         """
         all_embeddings = []
+        total_tokens_count = 0
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
-            embeddings = self.predict(batch)
+            embeddings, tokens = self.predict(batch)
             all_embeddings.extend(embeddings)
-        return all_embeddings
+            total_tokens_count += tokens
+        return all_embeddings, total_tokens_count
 
     def mean_pooling(self, token_embeddings, attention_mask):
         # token_embeddings: [batch_size, seq_len, hidden_size]

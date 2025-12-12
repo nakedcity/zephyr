@@ -107,7 +107,14 @@ async def create_embeddings(request: EmbeddingRequest, _: bool = Security(verify
     
     try:
         start_time = time.time()
-        embeddings = await embedder.predict_batched(inputs, batch_size=batch_size)
+        result = await embedder.predict_batched(inputs, batch_size=batch_size)
+        
+        # Handle tuple return (embeddings, usage) if refactored, else just embeddings
+        if isinstance(result, tuple):
+             embeddings, total_tokens = result
+        else:
+             embeddings, total_tokens = result, 0
+             
         elapsed = time.time() - start_time
         logger.info(f"EMBEDDING COMPLETE: Processed {num_inputs} texts in {elapsed:.2f}s ({num_inputs/elapsed:.1f} texts/sec) [batch_size={batch_size}]")
     except Exception as e:
@@ -119,8 +126,8 @@ async def create_embeddings(request: EmbeddingRequest, _: bool = Security(verify
     for i, emb in enumerate(embeddings):
         data.append(EmbeddingObject(embedding=emb, index=i))
 
-    # Usage stats (approximate)
-    usage = Usage(prompt_tokens=0, total_tokens=0)
+    # Usage stats
+    usage = Usage(prompt_tokens=total_tokens, total_tokens=total_tokens)
 
     return EmbeddingResponse(
         data=data,

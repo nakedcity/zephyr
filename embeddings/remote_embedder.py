@@ -22,26 +22,30 @@ class RemoteEmbedder:
         # Note: Ideally this should be closed, but it lives for the app lifetime
         self.client = httpx.AsyncClient(base_url=self.base_url, timeout=300)
 
-    async def predict(self, texts: list[str]) -> list[list[float]]:
+    async def predict(self, texts: list[str]) -> tuple[list[list[float]], int]:
         try:
             response = await self.client.post(
                 "/predict",
                 json={"texts": texts, "batch_size": 32}
             )
             response.raise_for_status()
-            return response.json()["embeddings"]
+            data = response.json()
+            usage = data.get("usage", {"total_tokens": 0})
+            return data["embeddings"], usage["total_tokens"]
         except httpx.HTTPError as e:
             logger.error(f"Prediction failed: {e}")
             raise
 
-    async def predict_batched(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
+    async def predict_batched(self, texts: list[str], batch_size: int = 32) -> tuple[list[list[float]], int]:
         try:
             response = await self.client.post(
                 "/predict",
                 json={"texts": texts, "batch_size": batch_size}
             )
             response.raise_for_status()
-            return response.json()["embeddings"]
+            data = response.json()
+            usage = data.get("usage", {"total_tokens": 0})
+            return data["embeddings"], usage["total_tokens"]
         except httpx.HTTPError as e:
             logger.error(f"Prediction failed: {e}")
             raise

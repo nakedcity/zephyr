@@ -67,10 +67,10 @@ async def predict(request: PredictionRequest):
     
     try:
         if len(request.texts) > request.batch_size:
-             embeddings = embedder.predict_batched(request.texts, batch_size=request.batch_size)
+             embeddings, tokens = embedder.predict_batched(request.texts, batch_size=request.batch_size)
         else:
-             embeddings = embedder.predict(request.texts)
-        return {"embeddings": embeddings}
+             embeddings, tokens = embedder.predict(request.texts)
+        return {"embeddings": embeddings, "usage": {"prompt_tokens": tokens, "total_tokens": tokens}}
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
