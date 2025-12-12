@@ -52,9 +52,9 @@ class ONNXEmbedder:
              # But if user has only CPU provider, ORT might still load CPU if it can't find others? 
              # Actually, if we pass only ['CUDAExecutionProvider'], ORT should fail if it can't use it?
              # Let's verify.
-             if provider == "migraphx" and not any(p in active_providers for p in ["ROCMExecutionProvider", "MIGraphXExecutionProvider"]):
+             if provider == "migraphx" and "MIGraphXExecutionProvider" not in active_providers:
                  raise RuntimeError(
-                    f"GPU requested (provider=migraphx) but neither ROCMExecutionProvider nor MIGraphXExecutionProvider active. "
+                    f"GPU requested (provider=migraphx) but MIGraphXExecutionProvider not active. "
                     f"Active providers: {active_providers}."
                 )
              if provider == "cuda" and "CUDAExecutionProvider" not in active_providers:
@@ -64,7 +64,7 @@ class ONNXEmbedder:
                 )
         
     def predict(self, texts: list[str]) -> tuple[list[list[float]], int]:
-        # Handle static batching for ROCm/MIGraphX to prevent recompilation
+        # Handle static batching for MIGraphX to prevent recompilation
         # We always pad the batch to self.static_batch_size if set
         original_len = len(texts)
         if hasattr(self, 'static_batch_size') and self.static_batch_size:

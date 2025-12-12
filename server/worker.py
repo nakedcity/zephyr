@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
         )
         logger.info(f"Model loaded successfully. Processing batch size: {processing_batch_size}")
         
-        # Warmup: Run a dummy inference to trigger lazy compilation (MIGraphX/ROCm)
+        # Warmup: Run a dummy inference to trigger lazy compilation (MIGraphX)
         if device == "gpu":
             logger.info("Running warmup inference to compile GPU kernels...")
             try:

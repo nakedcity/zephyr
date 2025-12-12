@@ -1630,7 +1630,7 @@ cpu = [
 cuda = [
     { name = "onnxruntime-gpu", extra = ["cuda", "cudnn"] },
 ]
-rocm = [
+migraphx = [
     { name = "onnxruntime-migraphx" },
 ]
 
@@ -1650,10 +1650,10 @@ requires-dist = [
     { name = "onnx", specifier = "==1.20.0" },
     { name = "onnxruntime", marker = "extra == 'cpu'", specifier = ">=1.23.2" },
     { name = "onnxruntime-gpu", extras = ["cuda", "cudnn"], marker = "extra == 'cuda'", specifier = "==1.23.2" },
-    { name = "onnxruntime-migraphx", marker = "extra == 'rocm'", specifier = ">=1.23.0" },
+    { name = "onnxruntime-migraphx", marker = "extra == 'migraphx'", specifier = ">=1.23.0" },
     { name = "tokenizers", specifier = "==0.22.1" },
 ]
-provides-extras = ["cuda", "rocm", "cpu"]
+provides-extras = ["cuda", "migraphx", "cpu"]
 
 [package.metadata.requires-dev]
 dev = [

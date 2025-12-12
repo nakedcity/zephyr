@@ -23,15 +23,15 @@ class ProcessManager:
             return self.processes[model_id] # Already running (maybe shared worker?)
             
         model_conf = self.config.models[model_id]
-        # engine: cuda, rocm, or cpu
+        # engine: cuda, migraphx, or cpu
         engine = getattr(model_conf, 'engine', 'cpu')
         
         # Determine worker config based on engine
         # Config schema:
         # workers:
-        #   cuda: { port: 5001 }
-        #   rocm: { port: 5002 }
-        #   cpu:  { port: 5003 }
+        #   cuda:     { port: 5001 }
+        #   migraphx: { port: 5002 }
+        #   cpu:      { port: 5003 }
         
         worker_conf = self.config.workers.get(engine)
         if not worker_conf:
@@ -40,9 +40,9 @@ class ProcessManager:
         port = worker_conf.port
         
         # Determine python interpreter path and worker args
-        # engine=cuda -> .venv-cuda, device=gpu, provider=cuda
-        # engine=rocm -> .venv-rocm, device=gpu, provider=rocm
-        # engine=cpu  -> .venv-cpu,  device=cpu,  provider=None
+        # engine=cuda     -> .venv-cuda,     device=gpu, provider=cuda
+        # engine=migraphx -> .venv-migraphx, device=gpu, provider=migraphx
+        # engine=cpu      -> .venv-cpu,      device=cpu, provider=None
         
         if engine == "cuda":
             venv_name = ".venv-cuda"
