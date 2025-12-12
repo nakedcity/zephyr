@@ -33,7 +33,5 @@ workers:
     port: 5001
   migraphx:
     port: 5002
-  rocm:
-    port: 5004
   cpu:
     port: 5003

@@ -16,7 +16,7 @@ Zephyr delivers OpenAI-compatible embedding and model endpoints without the weig
 - LRU cache manages memory and tracks per-model `created` timestamps; delete endpoint unloads models.
 
 ## Architecture (Multi-Process GPU Separation)
-Zephyr uses a multi-process architecture to isolate GPU engines. This is critical because `onnxruntime-gpu` (CUDA) and `onnxruntime-migraphx` (ROCm) components often have conflicting shared library requirements and cannot easily coexist in the same Python process.
+Zephyr uses a multi-process architecture to isolate GPU engines. This is critical because `onnxruntime-gpu` (CUDA) and `onnxruntime-migraphx` (AMD) components often have conflicting shared library requirements and cannot easily coexist in the same Python process.
 
 ```mermaid
 flowchart TD
@@ -24,19 +24,17 @@ flowchart TD
     Gateway -->|Forward| ProcessManager
     ProcessManager -->|Spawn| CUDA[CUDA Worker (.venv-cuda)]
     ProcessManager -->|Spawn| MIGraphX[MIGraphX Worker (.venv-migraphx)]
-    ProcessManager -->|Spawn| ROCm[ROCm Worker (.venv-rocm)]
     ProcessManager -->|Spawn| CPU[CPU Worker (.venv-cpu)]
     
     CUDA -->|Inference| Model1[Embedding Model A]
     MIGraphX -->|Inference| Model2[Embedding Model B]
-    ROCm -->|Inference| Model3[Embedding Model C]
 ```
 
 ## Installation & Setup
 Zephyr isolates environments automatically using provided scripts.
 
 **1. Create Environments:**
-Run the install script to generate dedicated virtual environments for CPU, CUDA, MIGraphX and ROCm.
+Run the install script to generate dedicated virtual environments for CPU, CUDA, and MIGraphX.
 ```bash
 ./install.sh
 ```
@@ -46,7 +44,7 @@ Assign each model to a specific engine in `config/config.yaml`.
 ```yaml
 models:
   bge-small-en-v1.5:
-    engine: "migraphx" # "cuda", "migraphx", "rocm", or "cpu"
+    engine: "migraphx" # "cuda", "migraphx", or "cpu"
 ```
 
 **3. Run:**
@@ -67,7 +65,7 @@ export OPENAI_API_KEY=your_key
 # fastapi run server/main.py --port 8080
 ```
 
-Key configs live in `config/config.yaml`—set per-model `repo`, `engine` (cuda/migraphx/rocm/cpu), `quantize`, and `owner`; adjust `cache` and `preload` to fit your deployment.
+Key configs live in `config/config.yaml`—set per-model `repo`, `engine` (cuda/migraphx/cpu), `quantize`, and `owner`; adjust `cache` and `preload` to fit your deployment.
 
 ## Contributing
 

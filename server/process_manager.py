@@ -52,10 +52,6 @@ class ProcessManager:
             venv_name = ".venv-migraphx"
             provider = "migraphx"
             device_arg = "gpu"
-        elif engine == "rocm":
-            venv_name = ".venv-rocm"
-            provider = "rocm"
-            device_arg = "gpu"
         else:
             venv_name = ".venv-cpu"
             provider = "none" # Argparser expects string
@@ -85,7 +81,7 @@ class ProcessManager:
         if provider != "none":
             env["ZEPHYR_PROVIDER"] = provider
             
-        # For ROCm/MIGraphX, we enforce the batch_size as a static batch size to avoid recompilation
+        # For MIGraphX, we enforce the batch_size as a static batch size to avoid recompilation
         if provider == "migraphx":
             env["ZEPHYR_STATIC_BATCH_SIZE"] = str(batch_size)
             

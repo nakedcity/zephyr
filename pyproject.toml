@@ -17,10 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 cuda = ["onnxruntime-gpu[cuda,cudnn]==1.23.2"]
 migraphx = [
-    "onnxruntime-migraphx>=1.23.0; sys_platform == 'linux'",
-]
-rocm = [
-    "onnxruntime-rocm>=1.23.0; sys_platform == 'linux'",
+    "onnxruntime-migraphx>=1.23.0",
 ]
 cpu = [
     "onnxruntime>=1.23.2",

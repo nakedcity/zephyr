@@ -22,11 +22,8 @@ class ONNXEmbedder:
 
         if device == "gpu":
             if provider == "migraphx":
-                # ROCm 7.1+ uses MIGraphX as the backend. ROCMExecutionProvider is not available in these wheels.
+                # AMD GPUs use MIGraphX as the backend.
                 providers = ['MIGraphXExecutionProvider']
-            elif provider == "rocm":
-                # Standard ROCm execution provider
-                providers = ['ROCMExecutionProvider']
             elif provider == "cuda":
                 providers = ['CUDAExecutionProvider']
             else:
@@ -58,11 +55,6 @@ class ONNXEmbedder:
              if provider == "migraphx" and not any(p in active_providers for p in ["ROCMExecutionProvider", "MIGraphXExecutionProvider"]):
                  raise RuntimeError(
                     f"GPU requested (provider=migraphx) but neither ROCMExecutionProvider nor MIGraphXExecutionProvider active. "
-                    f"Active providers: {active_providers}."
-                )
-             if provider == "rocm" and "ROCMExecutionProvider" not in active_providers:
-                 raise RuntimeError(
-                    f"GPU requested (provider=rocm) but ROCMExecutionProvider not active. "
                     f"Active providers: {active_providers}."
                 )
              if provider == "cuda" and "CUDAExecutionProvider" not in active_providers:

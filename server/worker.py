@@ -37,8 +37,8 @@ async def lifespan(app: FastAPI):
     # Batch size config (resolved by process_manager to be static_batch_size if applicable)
     processing_batch_size = int(os.environ.get("ZEPHYR_BATCH_SIZE", "32"))
     
-    # Static batch size for avoiding recompilation (e.g. ROCm/MIGraphX)
-    # We use the generic batch_size for this purpose if we are on ROCm
+    # Static batch size for avoiding recompilation (e.g. MIGraphX)
+    # We use the generic batch_size for this purpose if we are on MIGraphX
     static_batch_size = processing_batch_size if device == "gpu" and provider == "migraphx" else None
 
     if not model_path or not tokenizer_path:
@@ -70,9 +70,10 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Warmup failed (non-fatal): {e}")
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
-        # We don't exit here immediately to allow logs to be flushed, but health check will fail
-        # Actually better to raise or exit
-        sys.exit(1)
+        # Force immediate exit to prevent hanging processes
+        # sys.exit(1) raises SystemExit which can be caught by Uvicorn/Starlette
+        # os._exit(1) terminates the process immediately
+        os._exit(1)
         
     yield
     
