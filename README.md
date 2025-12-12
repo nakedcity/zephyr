@@ -57,14 +57,12 @@ Start the main server. The Gateway will automatically spawn the necessary worker
 # Export your API key
 export OPENAI_API_KEY=your_key
 
-# Activate the CPU environment
-source .venv-cpu/bin/activate
+# Run the server using the helper script
+./run.sh
 
-# Run the server (default port 8080)
-fastapi run server/main.py --port 8080
-
-# Alternatively, for development with reload:
-# fastapi dev server/main.py --port 8080
+# Or manually:
+# source .venv-cpu/bin/activate
+# fastapi run server/main.py --port 8080
 ```
 
 Key configs live in `config/config.yaml`—set per-model `repo`, `engine` (cuda/rocm/cpu), `quantize`, and `owner`; adjust `cache` and `preload` to fit your deployment.
