@@ -136,12 +136,14 @@ def test_process_manager_mapping():
     conf = OmegaConf.create({
         "models": {
             "m1": {"engine": "cuda", "max_tokens": 128},
-            "m2": {"engine": "rocm", "max_tokens": 128},
-            "m3": {"engine": "cpu",  "max_tokens": 128}
+            "m2": {"engine": "migraphx", "max_tokens": 128},
+            "m3": {"engine": "cpu",  "max_tokens": 64},
+            "m4": {"engine": "rocm", "max_tokens": 128}
         },
         "workers": {
             "cuda": {"port": 5001},
-            "rocm": {"port": 5002},
+            "migraphx": {"port": 5002},
+            "rocm": {"port": 5004},
             "cpu":  {"port": 5003}
         }
     })
@@ -160,8 +162,15 @@ def test_process_manager_mapping():
         assert env_cuda["ZEPHYR_DEVICE"] == "gpu"
         assert env_cuda["ZEPHYR_PROVIDER"] == "cuda"
         
+        # Test MIGraphX
+        pm.start_worker_for_model("m2", "/path/m2", "/path/tok2")
+        kwargs_migraphx = mock_popen.call_args[1]
+        env_migraphx = kwargs_migraphx['env']
+        assert env_migraphx["ZEPHYR_DEVICE"] == "gpu"
+        assert env_migraphx["ZEPHYR_PROVIDER"] == "migraphx"
+        
         # Test ROCm
-        pm.start_worker_for_model("m2", "model.path", "tok.path")
+        pm.start_worker_for_model("m4", "/path/m4", "/path/tok4")
         kwargs_rocm = mock_popen.call_args[1]
         env_rocm = kwargs_rocm['env']
         assert env_rocm["ZEPHYR_DEVICE"] == "gpu"

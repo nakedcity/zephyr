@@ -33,9 +33,19 @@ setup_env ".venv-cpu" "cpu"
 # CUDA
 setup_env ".venv-cuda" "cuda"
 
-# ROCm (Needs Python 3.12 for onnxruntime-migraphx support as of ROCm 7.1)
+# 3. MIGraphX (ROCm) - Requires Python 3.12 for AMD wheels
+if [ ! -d ".venv-migraphx" ]; then
+    echo "Creating virtual environment for MIGraphX (ROCm)..."
+    uv venv --python 3.12 .venv-migraphx
+    source .venv-migraphx/bin/activate
+fi
+setup_env ".venv-migraphx" "migraphx"
+
+# 4. ROCm (Standard)
 if [ ! -d ".venv-rocm" ]; then
-    uv venv -p 3.12 ".venv-rocm"
+    echo "Creating virtual environment for ROCm (Standard)..."
+    uv venv --python 3.12 .venv-rocm
+    source .venv-rocm/bin/activate
 fi
 setup_env ".venv-rocm" "rocm"
 

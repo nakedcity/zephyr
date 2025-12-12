@@ -16,15 +16,18 @@ dependencies = [
 
 [project.optional-dependencies]
 cuda = ["onnxruntime-gpu[cuda,cudnn]==1.23.2"]
+migraphx = [
+    "onnxruntime-migraphx>=1.23.0; sys_platform == 'linux'",
+]
 rocm = [
-    "onnxruntime-migraphx>=1.23.0",
+    "onnxruntime-rocm>=1.23.0; sys_platform == 'linux'",
 ]
 cpu = [
     "onnxruntime>=1.23.2",
 ]
 
 [[tool.uv.index]]
-name = "rocm"
+name = "migraphx"
 url = "https://repo.radeon.com/rocm/manylinux/rocm-rel-7.1.1/"
 explicit = false
 

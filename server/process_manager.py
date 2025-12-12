@@ -48,6 +48,10 @@ class ProcessManager:
             venv_name = ".venv-cuda"
             provider = "cuda"
             device_arg = "gpu"
+        elif engine == "migraphx":
+            venv_name = ".venv-migraphx"
+            provider = "migraphx"
+            device_arg = "gpu"
         elif engine == "rocm":
             venv_name = ".venv-rocm"
             provider = "rocm"
@@ -66,15 +70,25 @@ class ProcessManager:
 
         # Prepare environment variables for worker
         env = os.environ.copy()
+        
+        # Batch size config
+        batch_size = getattr(model_conf, 'batch_size', 32)
+
         env.update({
             "ZEPHYR_MODEL_PATH": str(model_path),
             "ZEPHYR_TOKENIZER_PATH": str(tokenizer_path),
             "ZEPHYR_MAX_LENGTH": str(model_conf.max_tokens),
             "ZEPHYR_DEVICE": device_arg,
+            "ZEPHYR_BATCH_SIZE": str(batch_size),
         })
+        
         if provider != "none":
             env["ZEPHYR_PROVIDER"] = provider
-
+            
+        # For ROCm/MIGraphX, we enforce the batch_size as a static batch size to avoid recompilation
+        if provider == "migraphx":
+            env["ZEPHYR_STATIC_BATCH_SIZE"] = str(batch_size)
+            
         # Use 'fastapi run' to start the worker
         # We run it via 'python -m fastapi run' to ensure we use the venv's fastapi
         cmd = [

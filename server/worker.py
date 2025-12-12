@@ -18,13 +18,14 @@ logger = logging.getLogger("worker")
 
 class PredictionRequest(BaseModel):
     texts: list[str]
-    batch_size: int = 32
+    # batch_size is handled server-side based on config
 
 embedder: ONNXEmbedder | None = None
+processing_batch_size: int = 32
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global embedder
+    global embedder, processing_batch_size
     
     # Load config from environment variables
     model_path = os.environ.get("ZEPHYR_MODEL_PATH")
@@ -32,6 +33,13 @@ async def lifespan(app: FastAPI):
     max_length = int(os.environ.get("ZEPHYR_MAX_LENGTH", "512"))
     device = os.environ.get("ZEPHYR_DEVICE", "cpu")
     provider = os.environ.get("ZEPHYR_PROVIDER")
+    
+    # Batch size config (resolved by process_manager to be static_batch_size if applicable)
+    processing_batch_size = int(os.environ.get("ZEPHYR_BATCH_SIZE", "32"))
+    
+    # Static batch size for avoiding recompilation (e.g. ROCm/MIGraphX)
+    # We use the generic batch_size for this purpose if we are on ROCm
+    static_batch_size = processing_batch_size if device == "gpu" and provider == "migraphx" else None
 
     if not model_path or not tokenizer_path:
         logger.error("Missing ZEPHYR_MODEL_PATH or ZEPHYR_TOKENIZER_PATH env vars")
@@ -44,9 +52,10 @@ async def lifespan(app: FastAPI):
             tokenizer_path=tokenizer_path,
             max_length=max_length,
             device=device,
-            provider=provider
+            provider=provider,
+            static_batch_size=static_batch_size
         )
-        logger.info("Model loaded successfully.")
+        logger.info(f"Model loaded successfully. Processing batch size: {processing_batch_size}")
         
         # Warmup: Run a dummy inference to trigger lazy compilation (MIGraphX/ROCm)
         if device == "gpu":
@@ -78,10 +87,8 @@ async def predict(request: PredictionRequest):
         raise HTTPException(status_code=500, detail="Model not loaded")
     
     try:
-        if len(request.texts) > request.batch_size:
-             embeddings, tokens = embedder.predict_batched(request.texts, batch_size=request.batch_size)
-        else:
-             embeddings, tokens = embedder.predict(request.texts)
+        # Always use predict_batched to ensure consistent batching/padding behavior
+        embeddings, tokens = embedder.predict_batched(request.texts, batch_size=processing_batch_size)
         return {"embeddings": embeddings, "usage": {"prompt_tokens": tokens, "total_tokens": tokens}}
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
