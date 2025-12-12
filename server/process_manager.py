@@ -81,10 +81,6 @@ class ProcessManager:
         if provider != "none":
             env["ZEPHYR_PROVIDER"] = provider
             
-        # For MIGraphX, we enforce the batch_size as a static batch size to avoid recompilation
-        if provider == "migraphx":
-            env["ZEPHYR_STATIC_BATCH_SIZE"] = str(batch_size)
-            
         # Use 'fastapi run' to start the worker
         # We run it via 'python -m fastapi run' to ensure we use the venv's fastapi
         cmd = [
@@ -128,12 +124,19 @@ class ProcessManager:
             time.sleep(0.5)
         raise RuntimeError(f"Worker on port {port} failed to start within {timeout}s")
 
+    def stop_worker(self, model_id: str) -> bool:
+        proc = self.processes.pop(model_id, None)
+        if not proc:
+            return False
+        logger.info(f"Stopping worker for {model_id}...")
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        return True
+
     def stop_all(self):
-        for model_id, proc in self.processes.items():
-            logger.info(f"Stopping worker for {model_id}...")
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-        self.processes.clear()
+        # Copy keys to avoid mutation during iteration
+        for model_id in list(self.processes.keys()):
+            self.stop_worker(model_id)

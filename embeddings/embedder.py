@@ -3,13 +3,71 @@ import onnxruntime as ort
 import numpy as np
 from tokenizers import Tokenizer
 
-# Preload CUDA/cuDNN DLLs from Nvidia site packages if available (for onnxruntime-gpu >= 1.21)
-if hasattr(ort, "preload_dlls"):
+def _load_nvidia_cuda_libs():
+    """
+    Preload CUDA/cuDNN libs from NVIDIA pip wheels and expose them via LD_LIBRARY_PATH.
+    Raises if wheels are missing or no libraries can be loaded.
+    """
     try:
-        ort.preload_dlls(directory="")
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Failed to preload CUDA DLLs: {e}")
+        import nvidia  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError("NVIDIA CUDA wheels not installed; cannot preload CUDA libs") from exc
+
+    nvidia_root = Path(nvidia.__file__).resolve().parent
+    candidate_dirs = [
+        nvidia_root / "cudnn" / "lib",
+        nvidia_root / "cublas" / "lib",
+        nvidia_root / "cufft" / "lib",
+        nvidia_root / "curand" / "lib",
+        nvidia_root / "cuda_nvrtc" / "lib",
+        nvidia_root / "cuda_runtime" / "lib",
+        nvidia_root / "nvjitlink" / "lib",
+    ]
+
+    existing_dirs = [d for d in candidate_dirs if d.exists()]
+    if not existing_dirs:
+        raise RuntimeError("No CUDA library directories found in NVIDIA wheels")
+
+    existing = os.environ.get("LD_LIBRARY_PATH", "")
+    existing_parts = existing.split(os.pathsep) if existing else []
+    new_parts = [str(d) for d in existing_dirs if str(d) not in existing_parts]
+    if new_parts:
+        os.environ["LD_LIBRARY_PATH"] = os.pathsep.join(new_parts + existing_parts)
+
+    loaded_any = False
+    for lib_dir in existing_dirs:
+        for so_path in sorted(lib_dir.glob("*.so*")):
+            try:
+                ctypes.CDLL(str(so_path), mode=ctypes.RTLD_GLOBAL)
+                loaded_any = True
+            except OSError:
+                continue
+
+    if not loaded_any:
+        raise RuntimeError("Failed to preload CUDA libraries from NVIDIA wheels")
+
+
+def _ensure_cuda_libs():
+    """
+    First try onnxruntime's preload_dlls helper; if it fails, fall back to manual LD_LIBRARY_PATH + dlopen.
+    If both fail, raise to fail fast.
+    """
+    preload_exc = None
+    if hasattr(ort, "preload_dlls"):
+        try:
+            ort.preload_dlls(directory="")
+            return
+        except Exception as exc:  # noqa: BLE001
+            preload_exc = exc
+
+    try:
+        _load_nvidia_cuda_libs()
+    except Exception as exc:  # noqa: BLE001
+        if preload_exc:
+            raise RuntimeError(
+                f"Failed to preload CUDA libraries via onnxruntime preload_dlls and LD_LIBRARY_PATH bootstrap: {exc}"
+            ) from preload_exc
+        raise
 
 class ONNXEmbedder:
     def __init__(self, model_path: str, tokenizer_path: str, max_length: int = 512, device: str = "cpu", provider: str | None = None, static_batch_size: int | None = None):
@@ -21,6 +79,8 @@ class ONNXEmbedder:
         self.tokenizer.enable_padding(pad_id=0, pad_token="[PAD]", length=max_length)
 
         if device == "gpu":
+            if provider == "cuda":
+                _ensure_cuda_libs()
             if provider == "migraphx":
                 # AMD GPUs use MIGraphX as the backend.
                 providers = ['MIGraphXExecutionProvider']
@@ -150,3 +210,6 @@ class ONNXEmbedder:
     def normalize(self, v):
         norm = np.linalg.norm(v, axis=1, keepdims=True)
         return v / np.clip(norm, a_min=1e-9, a_max=None)
+import os
+import ctypes
+from pathlib import Path

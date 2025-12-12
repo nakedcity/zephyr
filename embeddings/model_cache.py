@@ -31,15 +31,7 @@ class ModelCache:
         if len(self.loaded_models) >= self.max_loaded:
             evicted_id, _ = self.loaded_models.popitem(last=False)
             self.loaded_metadata.pop(evicted_id, None)
-            # We should probably stop the worker if we evict?
-            # Or keeps it running?
-            # Given limited GPU memory, we should probably stop the worker.
-            # But ProcessManager.stop_worker(model_id) is not implemented yet in the simplistic version.
-            # The current ProcessManager stops ALL on shutdown.
-            # For now, let's just accept we might have zombie workers if we evict?
-            # Actually, let's implement eviction properly in ProcessManager later or just not support dynamic eviction well yet.
-            # Ideally ProcessManager needs a stop_worker(model_id) method.
-            pass
+            self.process_manager.stop_worker(evicted_id)
 
         # Load model
         model_conf = self.config.models[model_id]
@@ -91,8 +83,7 @@ class ModelCache:
             removed = True
         if model_id in self.loaded_metadata:
             self.loaded_metadata.pop(model_id, None)
-        
-        # TODO: Stop worker process if needed
+        self.process_manager.stop_worker(model_id)
         return removed
 
     def get_created_timestamp(self, model_id: str) -> int:
