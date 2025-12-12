@@ -196,7 +196,3 @@ async def delete_model(model_id: str, _: bool = Security(verify_bearer_token)):
 async def health():
     return {"status": "ok"}
 
-if __name__ == "__main__":
-    import uvicorn
-    config = load_config(CONFIG_PATH)
-    uvicorn.run(app, host=config.server.host, port=config.server.port)

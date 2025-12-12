@@ -1,11 +1,9 @@
 import os
 import sys
-import argparse
-import uvicorn
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import logging
 
 # Ensure project root is in path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -18,35 +16,49 @@ from embeddings.embedder import ONNXEmbedder
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("worker")
 
-class ModelConfig(BaseModel):
-    model_path: str
-    tokenizer_path: str
-    max_length: int
-    device: str
-    provider: str | None = None
-
 class PredictionRequest(BaseModel):
     texts: list[str]
     batch_size: int = 32
 
-app = FastAPI()
 embedder: ONNXEmbedder | None = None
 
-def load_embedder(args):
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global embedder
-    logger.info(f"Loading model from {args.model_path} on {args.device}...")
+    
+    # Load config from environment variables
+    model_path = os.environ.get("ZEPHYR_MODEL_PATH")
+    tokenizer_path = os.environ.get("ZEPHYR_TOKENIZER_PATH")
+    max_length = int(os.environ.get("ZEPHYR_MAX_LENGTH", "512"))
+    device = os.environ.get("ZEPHYR_DEVICE", "cpu")
+    provider = os.environ.get("ZEPHYR_PROVIDER")
+
+    if not model_path or not tokenizer_path:
+        logger.error("Missing ZEPHYR_MODEL_PATH or ZEPHYR_TOKENIZER_PATH env vars")
+        sys.exit(1)
+
+    logger.info(f"Loading model from {model_path} on {device}...")
     try:
         embedder = ONNXEmbedder(
-            model_path=args.model_path,
-            tokenizer_path=args.tokenizer_path,
-            max_length=args.max_length,
-            device=args.device,
-            provider=args.provider
+            model_path=model_path,
+            tokenizer_path=tokenizer_path,
+            max_length=max_length,
+            device=device,
+            provider=provider
         )
         logger.info("Model loaded successfully.")
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
+        # We don't exit here immediately to allow logs to be flushed, but health check will fail
+        # Actually better to raise or exit
         sys.exit(1)
+        
+    yield
+    
+    # improved cleanup if needed
+    embedder = None
+
+app = FastAPI(lifespan=lifespan)
 
 @app.post("/predict")
 async def predict(request: PredictionRequest):
@@ -68,18 +80,3 @@ async def health():
     if embedder:
         return {"status": "ok", "device": "ready"}
     return {"status": "loading"}
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, required=True)
-    parser.add_argument("--model-path", type=str, required=True)
-    parser.add_argument("--tokenizer-path", type=str, required=True)
-    parser.add_argument("--max-length", type=int, default=512)
-    parser.add_argument("--device", type=str, required=True) # cpu or gpu
-    parser.add_argument("--provider", type=str, default=None) # cuda or rocm
-    
-    args = parser.parse_args()
-    
-    load_embedder(args)
-    
-    uvicorn.run(app, host="127.0.0.1", port=args.port)

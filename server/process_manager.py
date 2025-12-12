@@ -64,19 +64,26 @@ class ProcessManager:
         if not python_exe.exists():
              raise RuntimeError(f"Python interpreter not found at {python_exe}. Run ./install.sh first.")
 
+        # Prepare environment variables for worker
+        env = os.environ.copy()
+        env.update({
+            "ZEPHYR_MODEL_PATH": str(model_path),
+            "ZEPHYR_TOKENIZER_PATH": str(tokenizer_path),
+            "ZEPHYR_MAX_LENGTH": str(model_conf.max_tokens),
+            "ZEPHYR_DEVICE": device_arg,
+        })
+        if provider != "none":
+            env["ZEPHYR_PROVIDER"] = provider
+
+        # Use 'fastapi run' to start the worker
+        # We run it via 'python -m fastapi run' to ensure we use the venv's fastapi
         cmd = [
             str(python_exe),
+            "-m", "fastapi", "run",
             str(project_root / "server" / "worker.py"),
-            "--port", str(port),
-            "--model-path", str(model_path),
-            "--tokenizer-path", str(tokenizer_path),
-            "--max-length", str(model_conf.max_tokens),
-            "--device", device_arg
+            "--port", str(port)
         ]
         
-        if provider != "none":
-            cmd.extend(["--provider", provider])
-
         logger.info(f"Starting worker for {model_id} on port {port} with {venv_name}...")
         
         # Check if port is in use
@@ -86,6 +93,7 @@ class ProcessManager:
         proc = subprocess.Popen(
             cmd,
             cwd=str(project_root),
+            env=env,
             stdout=sys.stdout,
             stderr=sys.stderr
         )
