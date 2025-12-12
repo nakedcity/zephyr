@@ -33,7 +33,10 @@ setup_env ".venv-cpu" "cpu"
 # CUDA
 setup_env ".venv-cuda" "cuda"
 
-# ROCm
+# ROCm (Needs Python 3.12 for onnxruntime-migraphx support as of ROCm 7.1)
+if [ ! -d ".venv-rocm" ]; then
+    uv venv -p 3.12 ".venv-rocm"
+fi
 setup_env ".venv-rocm" "rocm"
 
 echo "All environments ready."

@@ -19,10 +19,10 @@ class ONNXEmbedder:
         self.tokenizer.enable_truncation(max_length=max_length)
         self.tokenizer.enable_padding(pad_id=0, pad_token="[PAD]", length=max_length)
 
-        # Load ONNX model
         if device == "gpu":
             if provider == "rocm":
-                providers = ['ROCMExecutionProvider']
+                # ROCm 7.1+ uses MIGraphX as the backend
+                providers = ['MIGraphXExecutionProvider', 'ROCMExecutionProvider']
             elif provider == "cuda":
                 providers = ['CUDAExecutionProvider']
             else:
@@ -51,9 +51,9 @@ class ONNXEmbedder:
              # But if user has only CPU provider, ORT might still load CPU if it can't find others? 
              # Actually, if we pass only ['CUDAExecutionProvider'], ORT should fail if it can't use it?
              # Let's verify.
-             if provider == "rocm" and "ROCMExecutionProvider" not in active_providers:
+             if provider == "rocm" and not any(p in active_providers for p in ["ROCMExecutionProvider", "MIGraphXExecutionProvider"]):
                  raise RuntimeError(
-                    f"GPU requested (provider=rocm) but ROCMExecutionProvider not active. "
+                    f"GPU requested (provider=rocm) but neither ROCMExecutionProvider nor MIGraphXExecutionProvider active. "
                     f"Active providers: {active_providers}."
                 )
              if provider == "cuda" and "CUDAExecutionProvider" not in active_providers:

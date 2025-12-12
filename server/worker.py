@@ -47,6 +47,18 @@ async def lifespan(app: FastAPI):
             provider=provider
         )
         logger.info("Model loaded successfully.")
+        
+        # Warmup: Run a dummy inference to trigger lazy compilation (MIGraphX/ROCm)
+        if device == "gpu":
+            logger.info("Running warmup inference to compile GPU kernels...")
+            try:
+                # Use a long sequence to trigger max-shape compilation
+                # MIGraphX often recompiles for larger shapes if not seen before
+                warmup_text = "warmup " * (max_length // 2)
+                embedder.predict([warmup_text])
+                logger.info("Warmup complete.")
+            except Exception as e:
+                logger.warning(f"Warmup failed (non-fatal): {e}")
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
         # We don't exit here immediately to allow logs to be flushed, but health check will fail

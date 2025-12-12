@@ -101,10 +101,10 @@ class ProcessManager:
         self.processes[model_id] = proc
         
         # Wait for health check
-        self._wait_for_health(port)
+        self._wait_for_health(port, timeout=300)
         return port
 
-    def _wait_for_health(self, port: int, timeout=30):
+    def _wait_for_health(self, port: int, timeout=300):
         # We can implement a retry loop here using httpx
         import httpx
         start = time.time()
