@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cuda = ["onnxruntime-gpu==1.23.2"]
+cuda = ["onnxruntime-gpu[cuda,cudnn]==1.23.2"]
 rocm = ["onnxruntime-rocm==1.22.2.post1"]
 cpu = ["onnxruntime==1.23.2"]
 

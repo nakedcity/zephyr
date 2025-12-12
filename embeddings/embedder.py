@@ -1,48 +1,15 @@
-import os
-import ctypes
-from pathlib import Path
-
-def _load_nvidia_cuda_libs():
-    """Preload CUDA/cuDNN libs from nvidia pip wheels and expose them via LD_LIBRARY_PATH."""
-    try:
-        import nvidia  # type: ignore
-    except ImportError:
-        return
-
-    nvidia_root = Path(nvidia.__file__).resolve().parent
-    candidate_dirs = [
-        nvidia_root / "cudnn" / "lib",
-        nvidia_root / "cublas" / "lib",
-        nvidia_root / "cufft" / "lib",
-        nvidia_root / "curand" / "lib",
-        nvidia_root / "cuda_nvrtc" / "lib",
-        nvidia_root / "cuda_runtime" / "lib",
-        nvidia_root / "nvjitlink" / "lib",
-    ]
-
-    # Add to LD_LIBRARY_PATH so child processes inherit the locations.
-    existing = os.environ.get("LD_LIBRARY_PATH", "")
-    existing_parts = existing.split(os.pathsep) if existing else []
-    new_parts = [str(d) for d in candidate_dirs if d.exists() and str(d) not in existing_parts]
-    if new_parts:
-        os.environ["LD_LIBRARY_PATH"] = os.pathsep.join(new_parts + existing_parts)
-
-    # Preload the .so files to make them visible to onnxruntime in this process.
-    for lib_dir in candidate_dirs:
-        if not lib_dir.exists():
-            continue
-        for so_path in sorted(lib_dir.glob("*.so*")):
-            try:
-                ctypes.CDLL(str(so_path), mode=ctypes.RTLD_GLOBAL)
-            except OSError:
-                # Skip libraries that fail to load; onnxruntime will report any remaining issues.
-                continue
-
-_load_nvidia_cuda_libs()
 
 import onnxruntime as ort
 import numpy as np
 from tokenizers import Tokenizer
+
+# Preload CUDA/cuDNN DLLs from Nvidia site packages if available (for onnxruntime-gpu >= 1.21)
+if hasattr(ort, "preload_dlls"):
+    try:
+        ort.preload_dlls(directory="")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to preload CUDA DLLs: {e}")
 
 class ONNXEmbedder:
     def __init__(self, model_path: str, tokenizer_path: str, max_length: int = 512, device: str = "cpu", provider: str | None = None):
