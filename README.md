@@ -15,15 +15,43 @@ Zephyr delivers OpenAI-compatible embedding and model endpoints without the weig
 - On-demand loads pull `model.onnx` + tokenizer from Hugging Face Hub, optionally quantize, then serve through ONNX Runtime.
 - LRU cache manages memory and tracks per-model `created` timestamps; delete endpoint unloads models.
 
-## Architecture (mermaid)
+## Architecture (Multi-Process GPU Separation)
+Zephyr uses a multi-process architecture to isolate GPU engines. This is critical because `onnxruntime-gpu` (CUDA) and `onnxruntime-rocm` components often have conflicting shared library requirements and cannot easily coexist in the same Python process.
+
 ```mermaid
-flowchart LR
-    Client -->|HTTP /v1/*| FastAPI
-    FastAPI -->|auth + routing| ModelCache
-    ModelCache -->|download| HFHub[(Hugging Face Hub)]
-    ModelCache -->|instantiate| ONNXEmbedder
-    ONNXEmbedder -->|inference| ONNXRuntime[(onnxruntime)]
-    ModelCache --> Cache[(LRU in-memory)]
+flowchart TD
+    Client -->|HTTP /v1/*| Gateway[FastAPI Gateway]
+    Gateway -->|Forward| ProcessManager
+    ProcessManager -->|Spawn| CUDA[CUDA Worker (.venv-cuda)]
+    ProcessManager -->|Spawn| ROCm[ROCm Worker (.venv-rocm)]
+    ProcessManager -->|Spawn| CPU[CPU Worker (.venv-cpu)]
+    
+    CUDA -->|Inference| Model1[Embedding Model A]
+    ROCm -->|Inference| Model2[Embedding Model B]
+```
+
+## Installation & Setup
+Zephyr isolates environments automatically using provided scripts.
+
+**1. Create Environments:**
+Run the install script to generate dedicated virtual environments for CPU, CUDA, and ROCm.
+```bash
+./install.sh
+```
+
+**2. Configure Models:**
+Assign each model to a specific engine in `config/config.yaml`.
+```yaml
+models:
+  bge-small-en-v1.5:
+    engine: "rocm" # "cuda", "rocm", or "cpu"
+```
+
+**3. Run:**
+Start the main server. The Gateway will automatically spawn the necessary worker processes based on your config.
+```bash
+# You can run the server using your system python or any venv
+python server/main.py
 ```
 
 ## Run it

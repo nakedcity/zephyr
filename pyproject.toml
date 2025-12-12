@@ -5,18 +5,22 @@ description = "Pure ONNX Embedding Server with zero PyTorch dependency"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi",
-    "uvicorn",
-    "onnxruntime-gpu[cuda,cudnn]",
-    "tokenizers",
-    "huggingface-hub",
-    "numpy",
-    "omegaconf",
-    "onnx",
+    "fastapi==0.124.4",
+    "uvicorn==0.38.0",
+    "tokenizers==0.22.1",
+    "huggingface-hub==1.2.3",
+    "numpy==2.3.5",
+    "omegaconf==2.3.0",
+    "onnx==1.20.0",
 ]
+
+[project.optional-dependencies]
+cuda = ["onnxruntime-gpu==1.23.2"]
+rocm = ["onnxruntime-rocm==1.22.2.post1"]
+cpu = ["onnxruntime==1.23.2"]
 
 [dependency-groups]
 dev = [
-    "pytest",
-    "httpx",
+    "pytest==8.3.4",
+    "httpx==0.28.1",
 ]

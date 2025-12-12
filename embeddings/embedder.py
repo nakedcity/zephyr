@@ -45,7 +45,7 @@ import numpy as np
 from tokenizers import Tokenizer
 
 class ONNXEmbedder:
-    def __init__(self, model_path: str, tokenizer_path: str, max_length: int = 512, device: str = "cpu", provider: str = "cuda"):
+    def __init__(self, model_path: str, tokenizer_path: str, max_length: int = 512, device: str = "cpu", provider: str | None = None):
         self.tokenizer = Tokenizer.from_file(tokenizer_path)
         
         # Enable truncation and padding
@@ -55,9 +55,12 @@ class ONNXEmbedder:
         # Load ONNX model
         if device == "gpu":
             if provider == "rocm":
-                providers = ['ROCMExecutionProvider', 'CPUExecutionProvider']
+                providers = ['ROCMExecutionProvider']
+            elif provider == "cuda":
+                providers = ['CUDAExecutionProvider']
             else:
-                providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+                 # Should fail before this, but safe fallback logic for weird values
+                 raise ValueError(f"Unsupported gpu_provider: {provider}")
         else:
             providers = ['CPUExecutionProvider']
             
@@ -67,25 +70,29 @@ class ONNXEmbedder:
         sess_options = ort.SessionOptions()
         sess_options.log_severity_level = 3
         
-        self.session = ort.InferenceSession(model_path, providers=providers, sess_options=sess_options)
-        
+        try:
+             self.session = ort.InferenceSession(model_path, providers=providers, sess_options=sess_options)
+        except Exception as e:
+             raise RuntimeError(f"Failed to initialize session with providers {providers}: {e}")
+
         # Verify actual providers
         active_providers = self.session.get_providers()
         print(f"Model loaded. Active providers: {active_providers}")
         
         if device == "gpu":
-            if provider == "rocm":
-                if "ROCMExecutionProvider" not in active_providers:
-                     raise RuntimeError(
-                        f"GPU requested (provider=rocm) but ROCMExecutionProvider not available. "
-                        f"Active providers: {active_providers}. "
-                        "Check if onnxruntime-rocm is installed and ROCm is available."
-                    )
-            elif "CUDAExecutionProvider" not in active_providers:
+             # Double check that we didn't silently fall back if silent fallback is enabled in ORT (it shouldn't be with our list)
+             # But if user has only CPU provider, ORT might still load CPU if it can't find others? 
+             # Actually, if we pass only ['CUDAExecutionProvider'], ORT should fail if it can't use it?
+             # Let's verify.
+             if provider == "rocm" and "ROCMExecutionProvider" not in active_providers:
+                 raise RuntimeError(
+                    f"GPU requested (provider=rocm) but ROCMExecutionProvider not active. "
+                    f"Active providers: {active_providers}."
+                )
+             if provider == "cuda" and "CUDAExecutionProvider" not in active_providers:
                 raise RuntimeError(
-                    f"GPU requested (provider=cuda) but CUDAExecutionProvider not available. "
-                    f"Active providers: {active_providers}. "
-                    "Check if onnxruntime-gpu is installed and CUDA is available."
+                    f"GPU requested (provider=cuda) but CUDAExecutionProvider not active. "
+                    f"Active providers: {active_providers}."
                 )
         
     def predict(self, texts: list[str]) -> list[list[float]]:

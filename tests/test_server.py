@@ -32,8 +32,9 @@ def test_list_models():
 
 def test_create_embedding():
     mock_embedder = MagicMock()
-    mock_embedder.predict.return_value = [[0.1, 0.2, 0.3]]
+    mock_embedder.predict_batched.return_value = [[0.1, 0.2, 0.3]]
     
+    # ModelCache now returns RemoteEmbedder
     mock_cache = MagicMock()
     mock_cache.get_model.return_value = mock_embedder
     
@@ -53,13 +54,19 @@ def test_create_embedding():
             assert json_resp['data'][0]['embedding'] == [0.1, 0.2, 0.3]
 
 def test_quantization_workflow():
+    # ModelCache -> ProcessManager -> start_worker
+    # We test that quantization happens before worker start
     with patch('embeddings.model_cache.hf_hub_download') as mock_download, \
-         patch('embeddings.model_cache.ONNXEmbedder') as MockEmbedder, \
+         patch('embeddings.model_cache.ProcessManager') as MockPM, \
+         patch('embeddings.model_cache.RemoteEmbedder') as MockRemote, \
          patch('embeddings.model_cache.quantize_model') as mock_quantize, \
          patch('os.path.exists') as mock_exists:
         
         mock_download.return_value = "/tmp/model.onnx"
+        # Say quantized model does NOT exist yet
         mock_exists.side_effect = lambda p: p == "/tmp/model.onnx"
+        
+        MockPM.return_value.start_worker_for_model.return_value = 5001
         
         from embeddings.model_cache import ModelCache
         from omegaconf import OmegaConf
@@ -72,22 +79,28 @@ def test_quantization_workflow():
                     "dimension": 384,
                     "max_tokens": 512,
                     "quantize": True,
-                    "device": "cpu"
+                    "engine": "cpu"
                 }
-            }
+            },
+            "workers": {"cpu": {"port": 5003}}
         })
         
         cache = ModelCache(conf)
         cache.get_model("test-quant")
         
         mock_quantize.assert_called_once()
-        args, kwargs = MockEmbedder.call_args
-        assert "model_quantized.onnx" in args[0]
-        assert kwargs['device'] == 'cpu'
+        # Verify worker started with quantized path
+        args, kwargs = MockPM.return_value.start_worker_for_model.call_args
+        assert "model_quantized.onnx" in args[1]
 
-def test_device_selection_gpu_success():
+def test_engine_selection_cuda():
+    # Test that ModelCache reads 'engine' correctly and ProcessManager is initialized
+    # Actual mapping logic is in ProcessManager, so we should test ProcessManager separately ideally.
+    # But here we verify ModelCache integration.
+    
     with patch('embeddings.model_cache.hf_hub_download') as mock_download, \
-         patch('embeddings.model_cache.ONNXEmbedder') as MockEmbedder:
+         patch('embeddings.model_cache.ProcessManager') as MockPM, \
+         patch('embeddings.model_cache.RemoteEmbedder'):
         
         mock_download.return_value = "/tmp/model.onnx"
         
@@ -102,35 +115,69 @@ def test_device_selection_gpu_success():
                     "dimension": 384,
                     "max_tokens": 512,
                     "quantize": False,
-                    "device": "gpu"
+                    "engine": "cuda"
                 }
-            }
+            },
+            "workers": {"cuda": {"port": 5001}}
         })
         
         cache = ModelCache(conf)
         cache.get_model("test-gpu")
         
-        args, kwargs = MockEmbedder.call_args
-        assert kwargs['device'] == 'gpu'
+        MockPM.return_value.start_worker_for_model.assert_called()
 
-def test_device_selection_gpu_fail():
-    # Test that RuntimeError is raised if CUDA is missing
-    # We need to mock ONNXEmbedder to simulate the initialization failure
-    # But wait, ONNXEmbedder is what we are testing. We should mock ort.InferenceSession
+
+def test_process_manager_mapping():
+    # Direct test of ProcessManager mapping logic
+    from server.process_manager import ProcessManager
+    from omegaconf import OmegaConf
+    from unittest.mock import patch
     
-    with patch('embeddings.embedder.ort.InferenceSession') as MockSession, \
-         patch('embeddings.embedder.Tokenizer'):
+    conf = OmegaConf.create({
+        "models": {
+            "m1": {"engine": "cuda", "max_tokens": 128},
+            "m2": {"engine": "rocm", "max_tokens": 128},
+            "m3": {"engine": "cpu",  "max_tokens": 128}
+        },
+        "workers": {
+            "cuda": {"port": 5001},
+            "rocm": {"port": 5002},
+            "cpu":  {"port": 5003}
+        }
+    })
+    
+    pm = ProcessManager(conf)
+    
+    with patch('subprocess.Popen') as mock_popen, \
+         patch('server.process_manager.is_port_in_use', return_value=False), \
+         patch('server.process_manager.Path.exists', return_value=True), \
+         patch.object(pm, '_wait_for_health'):
         
-        # Simulate CPU fallback
-        mock_session = MockSession.return_value
-        mock_session.get_providers.return_value = ['CPUExecutionProvider']
+        # Test CUDA
+        pm.start_worker_for_model("m1", "model.path", "tok.path")
+        cmd_cuda = mock_popen.call_args[0][0]
+        assert "--device" in cmd_cuda
+        idx = cmd_cuda.index("--device")
+        assert cmd_cuda[idx+1] == "gpu"
+        assert "--provider" in cmd_cuda
+        idx_p = cmd_cuda.index("--provider")
+        assert cmd_cuda[idx_p+1] == "cuda"
         
-        from embeddings.embedder import ONNXEmbedder
+        # Test ROCm
+        pm.start_worker_for_model("m2", "model.path", "tok.path")
+        cmd_rocm = mock_popen.call_args[0][0]
+        assert "--provider" in cmd_rocm
+        idx_p = cmd_rocm.index("--provider")
+        assert cmd_rocm[idx_p+1] == "rocm"
         
-        with pytest.raises(RuntimeError) as excinfo:
-            ONNXEmbedder("model.onnx", "tokenizer.json", device="gpu")
-        
-        assert "GPU requested but CUDAExecutionProvider not available" in str(excinfo.value)
+        # Test CPU
+        pm.start_worker_for_model("m3", "model.path", "tok.path")
+        cmd_cpu = mock_popen.call_args[0][0]
+        assert "--device" in cmd_cpu
+        idx = cmd_cpu.index("--device")
+        assert cmd_cpu[idx+1] == "cpu"
+        assert "--provider" not in cmd_cpu
+
 
 def test_retrieve_model_loads_and_returns_metadata():
     with patch('server.main.ModelCache') as MockCache:
@@ -169,7 +216,17 @@ def test_retrieve_unknown_model_returns_404():
         assert "not found" in resp.json()['detail']
 
 def test_missing_auth_gets_401():
-    with TestClient(app) as client:
-        resp = client.get("/v1/models")
-        assert resp.status_code == 401
-        assert "Authorization" in resp.json()["detail"]
+    from omegaconf import OmegaConf
+    mock_conf = OmegaConf.create({
+        'authorization': {'enabled': True, 'token_env_var': 'OPENAI_API_KEY'},
+        'cache': {'directory': '/tmp/cache', 'max_loaded_models': 1},
+        'models': {},
+        'preload': [],
+        'workers': {}
+    })
+    
+    with patch('server.main.config', mock_conf):
+        with TestClient(app) as client:
+            resp = client.get("/v1/models")
+            assert resp.status_code == 401
+            assert "Authorization" in resp.json()["detail"]

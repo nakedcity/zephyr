@@ -16,7 +16,7 @@ models:
     dimension: 384
     max_tokens: 512
     quantize: false  # INT8 quantization is slower on GTX 1080 (Pascal architecture)
-    device: "gpu"
+    engine: "rocm"  # Options: cuda, rocm, cpu
     batch_size: 64  # Optimal for GTX 1080 8GB VRAM with FP32
     owner: "Xenova"
   all-MiniLM-L6-v2:
@@ -24,9 +24,17 @@ models:
     dimension: 384
     max_tokens: 256
     quantize: true
-    device: "cpu"
+    engine: "cpu"
     batch_size: 128  # CPU can handle larger batches
     owner: "Xenova"
 
 preload:
   - bge-small-en-v1.5
+
+workers:
+  cuda:
+    port: 5001
+  rocm:
+    port: 5002
+  cpu:
+    port: 5003
