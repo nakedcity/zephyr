@@ -45,7 +45,7 @@ import numpy as np
 from tokenizers import Tokenizer
 
 class ONNXEmbedder:
-    def __init__(self, model_path: str, tokenizer_path: str, max_length: int = 512, device: str = "cpu"):
+    def __init__(self, model_path: str, tokenizer_path: str, max_length: int = 512, device: str = "cpu", provider: str = "cuda"):
         self.tokenizer = Tokenizer.from_file(tokenizer_path)
         
         # Enable truncation and padding
@@ -54,11 +54,14 @@ class ONNXEmbedder:
 
         # Load ONNX model
         if device == "gpu":
-            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+            if provider == "rocm":
+                providers = ['ROCMExecutionProvider', 'CPUExecutionProvider']
+            else:
+                providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
         else:
             providers = ['CPUExecutionProvider']
             
-        print(f"Requesting load on {device} with providers: {providers}")
+        print(f"Requesting load on {device} (provider={provider}) with providers: {providers}")
         
         # Suppress warnings (like GPU discovery failure)
         sess_options = ort.SessionOptions()
@@ -70,12 +73,20 @@ class ONNXEmbedder:
         active_providers = self.session.get_providers()
         print(f"Model loaded. Active providers: {active_providers}")
         
-        if device == "gpu" and "CUDAExecutionProvider" not in active_providers:
-            raise RuntimeError(
-                f"GPU requested but CUDAExecutionProvider not available. "
-                f"Active providers: {active_providers}. "
-                "Check if onnxruntime-gpu is installed and CUDA is available."
-            )
+        if device == "gpu":
+            if provider == "rocm":
+                if "ROCMExecutionProvider" not in active_providers:
+                     raise RuntimeError(
+                        f"GPU requested (provider=rocm) but ROCMExecutionProvider not available. "
+                        f"Active providers: {active_providers}. "
+                        "Check if onnxruntime-rocm is installed and ROCm is available."
+                    )
+            elif "CUDAExecutionProvider" not in active_providers:
+                raise RuntimeError(
+                    f"GPU requested (provider=cuda) but CUDAExecutionProvider not available. "
+                    f"Active providers: {active_providers}. "
+                    "Check if onnxruntime-gpu is installed and CUDA is available."
+                )
         
     def predict(self, texts: list[str]) -> list[list[float]]:
         # Tokenize
