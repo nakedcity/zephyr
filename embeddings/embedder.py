@@ -1,76 +1,33 @@
 
+import logging
+
 import onnxruntime as ort
 import numpy as np
 from tokenizers import Tokenizer
 
-def _load_nvidia_cuda_libs():
-    """
-    Preload CUDA/cuDNN libs from NVIDIA pip wheels and expose them via LD_LIBRARY_PATH.
-    Raises if wheels are missing or no libraries can be loaded.
-    """
-    try:
-        import nvidia  # type: ignore
-    except ImportError as exc:
-        raise RuntimeError("NVIDIA CUDA wheels not installed; cannot preload CUDA libs") from exc
+from embeddings.providers.cuda import ensure_cuda_libs, get_cuda_providers
+from embeddings.providers.migraphx import get_migraphx_providers
 
-    nvidia_root = Path(nvidia.__file__).resolve().parent
-    candidate_dirs = [
-        nvidia_root / "cudnn" / "lib",
-        nvidia_root / "cublas" / "lib",
-        nvidia_root / "cufft" / "lib",
-        nvidia_root / "curand" / "lib",
-        nvidia_root / "cuda_nvrtc" / "lib",
-        nvidia_root / "cuda_runtime" / "lib",
-        nvidia_root / "nvjitlink" / "lib",
-    ]
+LOG = logging.getLogger(__name__)
 
-    existing_dirs = [d for d in candidate_dirs if d.exists()]
-    if not existing_dirs:
-        raise RuntimeError("No CUDA library directories found in NVIDIA wheels")
-
-    existing = os.environ.get("LD_LIBRARY_PATH", "")
-    existing_parts = existing.split(os.pathsep) if existing else []
-    new_parts = [str(d) for d in existing_dirs if str(d) not in existing_parts]
-    if new_parts:
-        os.environ["LD_LIBRARY_PATH"] = os.pathsep.join(new_parts + existing_parts)
-
-    loaded_any = False
-    for lib_dir in existing_dirs:
-        for so_path in sorted(lib_dir.glob("*.so*")):
-            try:
-                ctypes.CDLL(str(so_path), mode=ctypes.RTLD_GLOBAL)
-                loaded_any = True
-            except OSError:
-                continue
-
-    if not loaded_any:
-        raise RuntimeError("Failed to preload CUDA libraries from NVIDIA wheels")
-
-
-def _ensure_cuda_libs():
-    """
-    First try onnxruntime's preload_dlls helper; if it fails, fall back to manual LD_LIBRARY_PATH + dlopen.
-    If both fail, raise to fail fast.
-    """
-    preload_exc = None
-    if hasattr(ort, "preload_dlls"):
-        try:
-            ort.preload_dlls(directory="")
-            return
-        except Exception as exc:  # noqa: BLE001
-            preload_exc = exc
-
-    try:
-        _load_nvidia_cuda_libs()
-    except Exception as exc:  # noqa: BLE001
-        if preload_exc:
-            raise RuntimeError(
-                f"Failed to preload CUDA libraries via onnxruntime preload_dlls and LD_LIBRARY_PATH bootstrap: {exc}"
-            ) from preload_exc
-        raise
+def _onnx_type_to_np(onnx_type: str):
+    # Map common integer types; default to int64 to preserve previous behavior
+    mapping = {
+        "tensor(int64)": np.int64,
+        "tensor(int32)": np.int32,
+        "tensor(int16)": np.int16,
+        "tensor(int8)": np.int8,
+        "tensor(uint64)": np.uint64,
+        "tensor(uint32)": np.uint32,
+        "tensor(uint16)": np.uint16,
+        "tensor(uint8)": np.uint8,
+        "tensor(bool)": np.bool_,
+    }
+    return mapping.get(onnx_type, np.int64)
 
 class ONNXEmbedder:
     def __init__(self, model_path: str, tokenizer_path: str, max_length: int = 512, device: str = "cpu", provider: str | None = None, static_batch_size: int | None = None):
+        self.provider = provider
         self.static_batch_size = static_batch_size
         self.tokenizer = Tokenizer.from_file(tokenizer_path)
         
@@ -80,12 +37,10 @@ class ONNXEmbedder:
 
         if device == "gpu":
             if provider == "cuda":
-                _ensure_cuda_libs()
-            if provider == "migraphx":
+                providers = get_cuda_providers()
+            elif provider == "migraphx":
                 # AMD GPUs use MIGraphX as the backend.
-                providers = ['MIGraphXExecutionProvider']
-            elif provider == "cuda":
-                providers = ['CUDAExecutionProvider']
+                providers = get_migraphx_providers()
             else:
                  # Should fail before this, but safe fallback logic for weird values
                  raise ValueError(f"Unsupported gpu_provider: {provider}")
@@ -106,6 +61,11 @@ class ONNXEmbedder:
         # Verify actual providers
         active_providers = self.session.get_providers()
         print(f"Model loaded. Active providers: {active_providers}")
+        # Capture model input types so we can feed tensors with matching dtypes (avoids MIGraphX type mismatches)
+        self.model_inputs = self.session.get_inputs()
+        self.input_dtypes = {i.name: _onnx_type_to_np(i.type) for i in self.model_inputs}
+        signature_pretty = [(i.name, i.type, i.shape) for i in self.model_inputs]
+        print(f"Model input signatures: {signature_pretty}")
         
         if device == "gpu":
              # Double check that we didn't silently fall back if silent fallback is enabled in ORT (it shouldn't be with our list)
@@ -147,9 +107,43 @@ class ONNXEmbedder:
         for i in range(original_len):
             total_tokens += sum(encoded[i].attention_mask)
         
-        input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
-        attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
-        token_type_ids = np.array([e.type_ids for e in encoded], dtype=np.int64)
+        # Match input tensor dtypes to model expectation to avoid MIGraphX param type mismatches
+        ids_dtype = self.input_dtypes.get('input_ids', np.int64)
+        mask_dtype = self.input_dtypes.get('attention_mask', np.int64)
+        type_ids_dtype = self.input_dtypes.get('token_type_ids', np.int64)
+
+        input_ids = np.array([e.ids for e in encoded], dtype=ids_dtype)
+        attention_mask = np.array([e.attention_mask for e in encoded], dtype=mask_dtype)
+        token_type_ids = np.array([e.type_ids for e in encoded], dtype=type_ids_dtype)
+        if self.provider == "migraphx":
+            # Ensure contiguous buffers to avoid provider surprises
+            input_ids = np.ascontiguousarray(input_ids)
+            attention_mask = np.ascontiguousarray(attention_mask)
+            token_type_ids = np.ascontiguousarray(token_type_ids)
+
+        # Log dtype mismatches to surface MIGraphX param type issues
+        actual_dtypes = {
+            "input_ids": input_ids.dtype,
+            "attention_mask": attention_mask.dtype,
+            "token_type_ids": token_type_ids.dtype,
+        }
+        for name, actual_dtype in actual_dtypes.items():
+            expected_dtype = self.input_dtypes.get(name)
+            if expected_dtype is not None and actual_dtype != expected_dtype:
+                LOG.warning(
+                    "Input dtype mismatch for %s: expected %s, got %s",
+                    name,
+                    expected_dtype,
+                    actual_dtype,
+                )
+        if self.provider == "migraphx":
+            print(
+                f"MIGraphX input dtypes (expected -> actual): "
+                f"{[(k, self.input_dtypes.get(k), v) for k, v in actual_dtypes.items()]}"
+            )
+            print(
+                f"MIGraphX input shapes: ids={input_ids.shape}, mask={attention_mask.shape}, type_ids={token_type_ids.shape}"
+            )
 
         # Run inference
         inputs = {
@@ -159,7 +153,7 @@ class ONNXEmbedder:
         }
         
         # Remove token_type_ids if not in model inputs
-        model_inputs = [x.name for x in self.session.get_inputs()]
+        model_inputs = [x.name for x in self.model_inputs]
         if 'token_type_ids' not in model_inputs:
             del inputs['token_type_ids']
             
@@ -210,6 +204,3 @@ class ONNXEmbedder:
     def normalize(self, v):
         norm = np.linalg.norm(v, axis=1, keepdims=True)
         return v / np.clip(norm, a_min=1e-9, a_max=None)
-import os
-import ctypes
-from pathlib import Path
