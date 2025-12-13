@@ -20,9 +20,13 @@ class ProcessManager:
         self.config = config
         self.processes = {} # model_id -> subprocess.Popen
 
-    def start_worker_for_model(self, model_id: str, model_path: str, tokenizer_path: str):
+    def start_worker_for_model(self, model_id: str, model_path: str, tokenizer_path: str) -> int:
         if model_id in self.processes:
-            return self.processes[model_id] # Already running (maybe shared worker?)
+            proc, port = self.processes[model_id]
+            if proc.poll() is None:
+                return port # Return the port of the running worker
+            # If process is dead, clean up and restart
+            self.stop_worker(model_id) 
             
         model_conf = self.config.models[model_id]
         # engine: cuda, migraphx, or cpu
@@ -116,7 +120,7 @@ class ProcessManager:
         t.daemon = True
         t.start()
         
-        self.processes[model_id] = proc
+        self.processes[model_id] = (proc, port)
         
         # Wait for health check
         self._wait_for_health(port, timeout=300)
@@ -143,9 +147,11 @@ class ProcessManager:
             return s.getsockname()[1]
 
     def stop_worker(self, model_id: str) -> bool:
-        proc = self.processes.pop(model_id, None)
-        if not proc:
+        entry = self.processes.pop(model_id, None)
+        if not entry:
             return False
+        
+        proc, _ = entry
         logger.info(f"Stopping worker for {model_id}...")
         proc.terminate()
         try:

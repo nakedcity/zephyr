@@ -146,9 +146,7 @@ def test_process_manager_mapping():
             "m3": {"engine": "cpu",  "max_tokens": 64}
         },
         "workers": {
-            "cuda": {"port": 5001},
-            "migraphx": {"port": 5002},
-            "cpu":  {"port": 5003}
+            # Removed static workers, effectively empty or ignored
         }
     })
     
@@ -157,10 +155,11 @@ def test_process_manager_mapping():
     with patch('subprocess.Popen') as mock_popen, \
          patch('server.process_manager.is_port_in_use', return_value=False), \
          patch('server.process_manager.Path.exists', return_value=True), \
-         patch('server.process_manager.Path.exists', return_value=True), \
+         patch('server.process_manager.ProcessManager._find_free_port', side_effect=[5001, 5002, 5003]), \
          patch.object(pm, '_wait_for_health'):
-        
-        # Prevent infinite loop in filter_stderr thread
+         
+        # Mock poll() to return None (process running)
+        mock_popen.return_value.poll.return_value = None
         mock_popen.return_value.stderr = iter([])
         
         # Test CUDA
