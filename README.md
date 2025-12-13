@@ -68,7 +68,5 @@ export OPENAI_API_KEY=your_key
 Key configs live in `config/config.yaml`—set per-model `repo`, `engine` (cuda/migraphx/cpu), `quantize`, and `owner`; adjust `cache` and `preload` to fit your deployment.
 
 ## Contributing
-
-## Contributing
 - Fork the repo and work on a branch in your fork.
 - Open a pull request to `main`; CI will run and we review/merge.

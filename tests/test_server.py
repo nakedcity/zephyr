@@ -22,6 +22,7 @@ def test_health():
 def test_list_models():
     with patch('server.main.ModelCache') as MockCache:
         mock_instance = MockCache.return_value
+        mock_instance.clear_all = AsyncMock()
         with TestClient(app) as client:
             response = client.get("/v1/models", headers=auth_headers())
             assert response.status_code == 200
@@ -32,11 +33,13 @@ def test_list_models():
 
 def test_create_embedding():
     mock_embedder = MagicMock()
-    mock_embedder.predict_batched = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
+    # predict_batched returns (embeddings, total_tokens)
+    mock_embedder.predict_batched = AsyncMock(return_value=([[0.1, 0.2, 0.3]], 10))
     
     # ModelCache now returns RemoteEmbedder
     mock_cache = MagicMock()
     mock_cache.get_model.return_value = mock_embedder
+    mock_cache.clear_all = AsyncMock()
     
     with patch('server.main.ModelCache') as MockCache:
         MockCache.return_value = mock_cache
@@ -181,6 +184,7 @@ def test_retrieve_model_loads_and_returns_metadata():
         mock_cache = MockCache.return_value
         mock_cache.get_model.return_value = MagicMock()
         mock_cache.get_created_timestamp.return_value = 1700000000
+        mock_cache.clear_all = AsyncMock()
 
         with TestClient(app) as client:
             resp = client.get("/v1/models/bge-small-en-v1.5", headers=auth_headers())
@@ -196,6 +200,7 @@ def test_delete_model_unloads():
     with patch('server.main.ModelCache') as MockCache:
         mock_cache = MockCache.return_value
         mock_cache.unload_model = AsyncMock(return_value=True)
+        mock_cache.clear_all = AsyncMock()
 
         with TestClient(app) as client:
             resp = client.delete("/v1/models/all-MiniLM-L6-v2", headers=auth_headers())
