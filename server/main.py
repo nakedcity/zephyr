@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    cache.clear_all()
+    await cache.clear_all()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -107,7 +107,14 @@ async def create_embeddings(request: EmbeddingRequest, _: bool = Security(verify
     
     try:
         start_time = time.time()
-        embeddings = embedder.predict_batched(inputs, batch_size=batch_size)
+        result = await embedder.predict_batched(inputs, batch_size=batch_size)
+        
+        # Handle tuple return (embeddings, usage) if refactored, else just embeddings
+        if isinstance(result, tuple):
+             embeddings, total_tokens = result
+        else:
+             embeddings, total_tokens = result, 0
+             
         elapsed = time.time() - start_time
         logger.info(f"EMBEDDING COMPLETE: Processed {num_inputs} texts in {elapsed:.2f}s ({num_inputs/elapsed:.1f} texts/sec) [batch_size={batch_size}]")
     except Exception as e:
@@ -119,8 +126,8 @@ async def create_embeddings(request: EmbeddingRequest, _: bool = Security(verify
     for i, emb in enumerate(embeddings):
         data.append(EmbeddingObject(embedding=emb, index=i))
 
-    # Usage stats (approximate)
-    usage = Usage(prompt_tokens=0, total_tokens=0)
+    # Usage stats
+    usage = Usage(prompt_tokens=total_tokens, total_tokens=total_tokens)
 
     return EmbeddingResponse(
         data=data,
@@ -186,7 +193,7 @@ async def delete_model(model_id: str, _: bool = Security(verify_bearer_token)):
     deleted = False
     if hasattr(cache, "unload_model"):
         try:
-            deleted = bool(cache.unload_model(model_id))
+            deleted = bool(await cache.unload_model(model_id))
         except Exception:
             deleted = False
 
@@ -195,8 +202,3 @@ async def delete_model(model_id: str, _: bool = Security(verify_bearer_token)):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-
-if __name__ == "__main__":
-    import uvicorn
-    config = load_config(CONFIG_PATH)
-    uvicorn.run(app, host=config.server.host, port=config.server.port)

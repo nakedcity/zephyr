@@ -2,20 +2,23 @@ import os
 import time
 from collections import OrderedDict
 from huggingface_hub import hf_hub_download
-from embeddings.embedder import ONNXEmbedder
+from embeddings.remote_embedder import RemoteEmbedder
 from embeddings.quantizer import quantize_model
+from server.process_manager import ProcessManager
 
 class ModelCache:
     def __init__(self, config):
         self.config = config
         self.cache_dir = config.cache.directory
         self.max_loaded = config.cache.max_loaded_models
-        # LRU cache: key=model_id, value=ONNXEmbedder
+        # LRU cache: key=model_id, value=RemoteEmbedder
         self.loaded_models = OrderedDict()
         # Track metadata like created timestamp per loaded model
         self.loaded_metadata = {}
+        
+        self.process_manager = ProcessManager(config)
 
-    def get_model(self, model_id: str) -> ONNXEmbedder:
+    def get_model(self, model_id: str) -> RemoteEmbedder:
         if model_id not in self.config.models:
             raise ValueError(f"Model {model_id} not configured")
 
@@ -26,25 +29,34 @@ class ModelCache:
 
         # Evict if full
         if len(self.loaded_models) >= self.max_loaded:
-            evicted_id, _ = self.loaded_models.popitem(last=False)
+            evicted_id, evicted_embedder = self.loaded_models.popitem(last=False)
             self.loaded_metadata.pop(evicted_id, None)
+            # Best-effort async client close for evicted embedder
+            try:
+                import asyncio
+                if hasattr(evicted_embedder, "aclose"):
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(evicted_embedder.aclose())
+                    else:
+                        loop.run_until_complete(evicted_embedder.aclose())
+            except Exception:
+                pass
+            self.process_manager.stop_worker(evicted_id)
 
         # Load model
         model_conf = self.config.models[model_id]
         repo_id = model_conf.repo
         
-        # Download files
-        # Try to find model.onnx in root or onnx/ subfolder
+        # Download files (Gateway does the download, Worker reads them)
         try:
             model_path = hf_hub_download(repo_id=repo_id, filename="model.onnx", cache_dir=self.cache_dir)
         except Exception:
-            # Try onnx/ subfolder (common in Xenova repos)
             print(f"model.onnx not found in root, trying onnx/model.onnx...")
             model_path = hf_hub_download(repo_id=repo_id, filename="onnx/model.onnx", cache_dir=self.cache_dir)
 
         tokenizer_path = hf_hub_download(repo_id=repo_id, filename="tokenizer.json", cache_dir=self.cache_dir)
         
-        # Also download config.json just in case
         try:
             hf_hub_download(repo_id=repo_id, filename="config.json", cache_dir=self.cache_dir)
         except Exception:
@@ -62,30 +74,45 @@ class ModelCache:
             
             model_path = quantized_path
 
-        # Get device config, default to cpu
-        device = getattr(model_conf, 'device', 'cpu')
-
-        embedder = ONNXEmbedder(model_path, tokenizer_path, max_length=model_conf.max_tokens, device=device)
+        # Start Worker
+        port = self.process_manager.start_worker_for_model(model_id, model_path, tokenizer_path)
+        
+        # Create Remote Client
+        embedder = RemoteEmbedder(port, model_id)
+        
         self.loaded_models[model_id] = embedder
         self.loaded_metadata[model_id] = {"created": int(time.time())}
         return embedder
 
-    def unload_model(self, model_id: str) -> bool:
+    async def unload_model(self, model_id: str) -> bool:
         """
         Remove a loaded model from memory. Returns True if the model was loaded and removed.
         """
         removed = False
         if model_id in self.loaded_models:
-            self.loaded_models.pop(model_id, None)
+            embedder = self.loaded_models.pop(model_id, None)
+            if embedder and hasattr(embedder, "aclose"):
+                try:
+                    await embedder.aclose()
+                except Exception:
+                    pass
             removed = True
         if model_id in self.loaded_metadata:
             self.loaded_metadata.pop(model_id, None)
+        self.process_manager.stop_worker(model_id)
         return removed
 
     def get_created_timestamp(self, model_id: str) -> int:
         """Return the UNIX timestamp (seconds) when the model was loaded, or 0 if not loaded."""
         return self.loaded_metadata.get(model_id, {}).get("created", 0)
 
-    def clear_all(self):
+    async def clear_all(self):
+        for embedder in list(self.loaded_models.values()):
+            if hasattr(embedder, "aclose"):
+                try:
+                    await embedder.aclose()
+                except Exception:
+                    pass
         self.loaded_models.clear()
         self.loaded_metadata.clear()
+        self.process_manager.stop_all()
