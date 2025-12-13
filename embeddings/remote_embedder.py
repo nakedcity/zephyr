@@ -7,6 +7,7 @@ class RemoteEmbedder:
     def __init__(self, port: int, model_id: str):
         self.base_url = f"http://127.0.0.1:{port}"
         self.model_id = model_id
+        self._closed = False
         
         # Verify connection synchronously
         try:
@@ -21,6 +22,20 @@ class RemoteEmbedder:
         # Initialize async client for predictions
         # Note: Ideally this should be closed, but it lives for the app lifetime
         self.client = httpx.AsyncClient(base_url=self.base_url, timeout=300)
+
+    async def aclose(self):
+        if self._closed:
+            return
+        try:
+            await self.client.aclose()
+        finally:
+            self._closed = True
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.aclose()
 
     async def predict(self, texts: list[str]) -> tuple[list[list[float]], int]:
         try:

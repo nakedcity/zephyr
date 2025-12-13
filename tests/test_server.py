@@ -195,7 +195,7 @@ def test_retrieve_model_loads_and_returns_metadata():
 def test_delete_model_unloads():
     with patch('server.main.ModelCache') as MockCache:
         mock_cache = MockCache.return_value
-        mock_cache.unload_model.return_value = True
+        mock_cache.unload_model = AsyncMock(return_value=True)
 
         with TestClient(app) as client:
             resp = client.delete("/v1/models/all-MiniLM-L6-v2", headers=auth_headers())

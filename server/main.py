@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    cache.clear_all()
+    await cache.clear_all()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -193,7 +193,7 @@ async def delete_model(model_id: str, _: bool = Security(verify_bearer_token)):
     deleted = False
     if hasattr(cache, "unload_model"):
         try:
-            deleted = bool(cache.unload_model(model_id))
+            deleted = bool(await cache.unload_model(model_id))
         except Exception:
             deleted = False
 
@@ -202,4 +202,3 @@ async def delete_model(model_id: str, _: bool = Security(verify_bearer_token)):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-

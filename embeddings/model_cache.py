@@ -29,8 +29,19 @@ class ModelCache:
 
         # Evict if full
         if len(self.loaded_models) >= self.max_loaded:
-            evicted_id, _ = self.loaded_models.popitem(last=False)
+            evicted_id, evicted_embedder = self.loaded_models.popitem(last=False)
             self.loaded_metadata.pop(evicted_id, None)
+            # Best-effort async client close for evicted embedder
+            try:
+                import asyncio
+                if hasattr(evicted_embedder, "aclose"):
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(evicted_embedder.aclose())
+                    else:
+                        loop.run_until_complete(evicted_embedder.aclose())
+            except Exception:
+                pass
             self.process_manager.stop_worker(evicted_id)
 
         # Load model
@@ -73,13 +84,18 @@ class ModelCache:
         self.loaded_metadata[model_id] = {"created": int(time.time())}
         return embedder
 
-    def unload_model(self, model_id: str) -> bool:
+    async def unload_model(self, model_id: str) -> bool:
         """
         Remove a loaded model from memory. Returns True if the model was loaded and removed.
         """
         removed = False
         if model_id in self.loaded_models:
-            self.loaded_models.pop(model_id, None)
+            embedder = self.loaded_models.pop(model_id, None)
+            if embedder and hasattr(embedder, "aclose"):
+                try:
+                    await embedder.aclose()
+                except Exception:
+                    pass
             removed = True
         if model_id in self.loaded_metadata:
             self.loaded_metadata.pop(model_id, None)
@@ -90,7 +106,13 @@ class ModelCache:
         """Return the UNIX timestamp (seconds) when the model was loaded, or 0 if not loaded."""
         return self.loaded_metadata.get(model_id, {}).get("created", 0)
 
-    def clear_all(self):
+    async def clear_all(self):
+        for embedder in list(self.loaded_models.values()):
+            if hasattr(embedder, "aclose"):
+                try:
+                    await embedder.aclose()
+                except Exception:
+                    pass
         self.loaded_models.clear()
         self.loaded_metadata.clear()
         self.process_manager.stop_all()
