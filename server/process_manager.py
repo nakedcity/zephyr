@@ -35,11 +35,8 @@ class ProcessManager:
         #   migraphx: { port: 5002 }
         #   cpu:      { port: 5003 }
         
-        worker_conf = self.config.workers.get(engine)
-        if not worker_conf:
-             raise ValueError(f"No worker configuration found for engine '{engine}'")
-
-        port = worker_conf.port
+        # Find a free port
+        port = self._find_free_port()
         
         # Determine python interpreter path and worker args
         # engine=cuda     -> .venv-cuda,     device=gpu, provider=cuda
@@ -138,6 +135,12 @@ class ProcessManager:
                 pass
             time.sleep(0.5)
         raise RuntimeError(f"Worker on port {port} failed to start within {timeout}s")
+
+    def _find_free_port(self) -> int:
+        """Find a free port on localhost."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('127.0.0.1', 0))
+            return s.getsockname()[1]
 
     def stop_worker(self, model_id: str) -> bool:
         proc = self.processes.pop(model_id, None)

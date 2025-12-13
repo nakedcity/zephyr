@@ -14,10 +14,13 @@ def auth_headers():
     return {"Authorization": "Bearer test-key"}
 
 def test_health():
-    with TestClient(app) as client:
-        response = client.get("/health")
-        assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
+    with patch('server.main.ModelCache') as MockCache:
+        mock_instance = MockCache.return_value
+        mock_instance.clear_all = AsyncMock()
+        with TestClient(app) as client:
+            response = client.get("/health")
+            assert response.status_code == 200
+            assert response.json() == {"status": "ok"}
 
 def test_list_models():
     with patch('server.main.ModelCache') as MockCache:
@@ -154,7 +157,11 @@ def test_process_manager_mapping():
     with patch('subprocess.Popen') as mock_popen, \
          patch('server.process_manager.is_port_in_use', return_value=False), \
          patch('server.process_manager.Path.exists', return_value=True), \
+         patch('server.process_manager.Path.exists', return_value=True), \
          patch.object(pm, '_wait_for_health'):
+        
+        # Prevent infinite loop in filter_stderr thread
+        mock_popen.return_value.stderr = iter([])
         
         # Test CUDA
         pm.start_worker_for_model("m1", "model.path", "tok.path")
@@ -212,10 +219,30 @@ def test_delete_model_unloads():
         mock_cache.unload_model.assert_called_with('all-MiniLM-L6-v2')
 
 def test_retrieve_unknown_model_returns_404():
-    with TestClient(app) as client:
-        resp = client.get("/v1/models/does-not-exist", headers=auth_headers())
-        assert resp.status_code == 404
-        assert "not found" in resp.json()['detail']
+    with patch('server.main.ModelCache') as MockCache:
+        mock_cache = MockCache.return_value
+        # Mock get_model to raise ValueError for unknown model
+        # But we need to support "preload" if it gets called, or ensure config has empty preload?
+        # Lifespan calls get_model for preloads.
+        # If we patch ModelCache, lifespan uses the mock.
+        # We need to make sure lifespan doesn't crash.
+        mock_cache.get_model.side_effect = ValueError("Not found") # Default behavior
+        mock_cache.clear_all = AsyncMock()
+        
+        # We need get_model to SUCCEED for preloads if any.
+        # But config is loaded from file.
+        # Let's also patch config to have empty preload to keep it simple.
+        
+        with patch('server.main.config') as mock_config:
+             mock_config.preload = []
+             mock_config.models = {}
+             # The endpoint checks if model_id not in config.models -> 404
+             # So we don't even reach get_model if it's not in config.
+             
+             with TestClient(app) as client:
+                 resp = client.get("/v1/models/does-not-exist", headers=auth_headers())
+                 assert resp.status_code == 404
+                 assert "not found" in resp.json()['detail']
 
 def test_missing_auth_gets_401():
     from omegaconf import OmegaConf
