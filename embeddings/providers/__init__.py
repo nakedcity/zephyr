@@ -1,2 +1,2 @@
-# Provider-specific utilities for ONNXRuntime backends.
+# Provider-specific helpers for ONNXRuntime backends.
 

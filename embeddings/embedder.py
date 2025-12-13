@@ -5,25 +5,10 @@ import onnxruntime as ort
 import numpy as np
 from tokenizers import Tokenizer
 
-from embeddings.providers.cuda import ensure_cuda_libs, get_cuda_providers
+from embeddings.providers.cuda import get_cuda_providers
 from embeddings.providers.migraphx import get_migraphx_providers
 
 LOG = logging.getLogger(__name__)
-
-def _onnx_type_to_np(onnx_type: str):
-    # Map common integer types; default to int64 to preserve previous behavior
-    mapping = {
-        "tensor(int64)": np.int64,
-        "tensor(int32)": np.int32,
-        "tensor(int16)": np.int16,
-        "tensor(int8)": np.int8,
-        "tensor(uint64)": np.uint64,
-        "tensor(uint32)": np.uint32,
-        "tensor(uint16)": np.uint16,
-        "tensor(uint8)": np.uint8,
-        "tensor(bool)": np.bool_,
-    }
-    return mapping.get(onnx_type, np.int64)
 
 class ONNXEmbedder:
     def __init__(self, model_path: str, tokenizer_path: str, max_length: int = 512, device: str = "cpu", provider: str | None = None, static_batch_size: int | None = None):
@@ -42,8 +27,7 @@ class ONNXEmbedder:
                 # AMD GPUs use MIGraphX as the backend.
                 providers = get_migraphx_providers()
             else:
-                 # Should fail before this, but safe fallback logic for weird values
-                 raise ValueError(f"Unsupported gpu_provider: {provider}")
+                raise ValueError(f"Unsupported gpu_provider: {provider}")
         else:
             providers = ['CPUExecutionProvider']
             
@@ -61,11 +45,8 @@ class ONNXEmbedder:
         # Verify actual providers
         active_providers = self.session.get_providers()
         print(f"Model loaded. Active providers: {active_providers}")
-        # Capture model input types so we can feed tensors with matching dtypes (avoids MIGraphX type mismatches)
         self.model_inputs = self.session.get_inputs()
-        self.input_dtypes = {i.name: _onnx_type_to_np(i.type) for i in self.model_inputs}
-        signature_pretty = [(i.name, i.type, i.shape) for i in self.model_inputs]
-        print(f"Model input signatures: {signature_pretty}")
+        self.model_input_names = [i.name for i in self.model_inputs]
         
         if device == "gpu":
              # Double check that we didn't silently fall back if silent fallback is enabled in ORT (it shouldn't be with our list)
@@ -107,43 +88,15 @@ class ONNXEmbedder:
         for i in range(original_len):
             total_tokens += sum(encoded[i].attention_mask)
         
-        # Match input tensor dtypes to model expectation to avoid MIGraphX param type mismatches
-        ids_dtype = self.input_dtypes.get('input_ids', np.int64)
-        mask_dtype = self.input_dtypes.get('attention_mask', np.int64)
-        type_ids_dtype = self.input_dtypes.get('token_type_ids', np.int64)
-
-        input_ids = np.array([e.ids for e in encoded], dtype=ids_dtype)
-        attention_mask = np.array([e.attention_mask for e in encoded], dtype=mask_dtype)
-        token_type_ids = np.array([e.type_ids for e in encoded], dtype=type_ids_dtype)
+        # Use int64 inputs (default for transformer ONNX models)
+        input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
+        attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
+        token_type_ids = np.array([e.type_ids for e in encoded], dtype=np.int64)
         if self.provider == "migraphx":
             # Ensure contiguous buffers to avoid provider surprises
             input_ids = np.ascontiguousarray(input_ids)
             attention_mask = np.ascontiguousarray(attention_mask)
             token_type_ids = np.ascontiguousarray(token_type_ids)
-
-        # Log dtype mismatches to surface MIGraphX param type issues
-        actual_dtypes = {
-            "input_ids": input_ids.dtype,
-            "attention_mask": attention_mask.dtype,
-            "token_type_ids": token_type_ids.dtype,
-        }
-        for name, actual_dtype in actual_dtypes.items():
-            expected_dtype = self.input_dtypes.get(name)
-            if expected_dtype is not None and actual_dtype != expected_dtype:
-                LOG.warning(
-                    "Input dtype mismatch for %s: expected %s, got %s",
-                    name,
-                    expected_dtype,
-                    actual_dtype,
-                )
-        if self.provider == "migraphx":
-            print(
-                f"MIGraphX input dtypes (expected -> actual): "
-                f"{[(k, self.input_dtypes.get(k), v) for k, v in actual_dtypes.items()]}"
-            )
-            print(
-                f"MIGraphX input shapes: ids={input_ids.shape}, mask={attention_mask.shape}, type_ids={token_type_ids.shape}"
-            )
 
         # Run inference
         inputs = {
@@ -153,8 +106,7 @@ class ONNXEmbedder:
         }
         
         # Remove token_type_ids if not in model inputs
-        model_inputs = [x.name for x in self.model_inputs]
-        if 'token_type_ids' not in model_inputs:
+        if 'token_type_ids' not in self.model_input_names:
             del inputs['token_type_ids']
             
         outputs = self.session.run(None, inputs)
