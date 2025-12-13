@@ -1,3 +1,4 @@
+
 import subprocess
 import sys
 import time
@@ -5,6 +6,7 @@ import os
 import signal
 import socket
 import logging
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -101,8 +103,21 @@ class ProcessManager:
             cwd=str(project_root),
             env=env,
             stdout=sys.stdout,
-            stderr=sys.stderr
+            stderr=subprocess.PIPE, # Capture stderr for filtering
+            text=True # Text mode for line buffering
         )
+        
+        # Background thread to filter stderr spam
+        def filter_stderr(pipe):
+            for line in pipe:
+                if "MIGraphX: param type mismatch" in line:
+                    continue
+                sys.stderr.write(line)
+                sys.stderr.flush()
+                
+        t = threading.Thread(target=filter_stderr, args=(proc.stderr,))
+        t.daemon = True
+        t.start()
         
         self.processes[model_id] = proc
         
