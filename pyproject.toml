@@ -1,7 +1,7 @@
 [project]
 name = "zephyr"
 version = "0.1.0"
-description = "Pure ONNX Embedding Server with zero PyTorch dependency"
+description = "High-Performance Pure ONNX Embedding Server"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

@@ -1,72 +1,66 @@
-# Zephyr — fast, pure-ONNX embeddings server
+# Zephyr — High-Performance ONNX Embedding Server
 
-Zephyr delivers OpenAI-compatible embedding and model endpoints without the weight of PyTorch. It downloads ONNX models from Hugging Face, serves them via FastAPI, and runs on GPU or CPU with optional quantization—ideal when you want small, fast inference.
+Zephyr is a lightweight, OpenAI-compatible server for text embeddings. Built on **ONNX Runtime**, it provides fast, efficient inference on both GPU (CUDA, ROCm) and CPU without the overhead of full Deep Learning frameworks. It manages isolated worker processes to handle conflicting driver dependencies seamlessly.
 
-## Why you’ll like it (quick pitch)
-- **OpenAI-compatible surface:** `/v1/embeddings`, `/v1/models`, retrieve, and delete endpoints; Bearer auth mirrors OpenAI keys.
-- **Zero PyTorch bloat:** pure ONNX Runtime, quick cold starts.
-- **Pluggable performance:** switch GPU/CPU per model; opt-in quantization for tight footprints.
-- **Smart caching:** configurable LRU of loaded models plus preload list for warm starts.
-- **DX-minded:** tiny dependency set, pytest suite, and straightforward config via `config/config.yaml`.
+## Key Features
+- **OpenAI-Compatible API:** Drop-in replacement for `/v1/embeddings`, supporting standard Bearer authentication.
+- **Pure ONNX Runtime:** Efficient inference with optimized kernels for varied hardware.
+- **Process Isolation:** Runs models in separate processes to support mixed backends (e.g., CUDA and MIGraphX) simultaneously.
+- **Dynamic Resource Management:** Automatically allocates ports and manages worker lifecycles.
+- **Flexible Deployment:** Switch between GPU and CPU per model, with optional quantization for reduced memory usage.
+- **Smart Caching:** LRU eviction policy to manage loaded models within memory limits.
 
-## Short overview
-- FastAPI app boots with a `ModelCache` that preloads any models listed in `preload`.
-- Requests authenticate via `Authorization: Bearer <OPENAI_API_KEY>`.
-- On-demand loads pull `model.onnx` + tokenizer from Hugging Face Hub, optionally quantize, then serve through ONNX Runtime.
-- LRU cache manages memory and tracks per-model `created` timestamps; delete endpoint unloads models.
+## Architecture
 
-## Architecture (Multi-Process GPU Separation)
-Zephyr uses a multi-process architecture to isolate GPU engines. This is critical because `onnxruntime-gpu` (CUDA) and `onnxruntime-migraphx` (AMD) components often have conflicting shared library requirements and cannot easily coexist in the same Python process.
+Zephyr employs a **Process Manager** to isolate execution environments. This allows the server to support conflicting library requirements (like different Python versions or incompatible shared libraries for AMD vs. NVIDIA drivers) on the same host.
 
 ```mermaid
 flowchart TD
     Client -->|HTTP /v1/*| Gateway[FastAPI Gateway]
     Gateway -->|Forward| ProcessManager
-    ProcessManager -->|Spawn| CUDA[CUDA Worker (.venv-cuda)]
-    ProcessManager -->|Spawn| MIGraphX[MIGraphX Worker (.venv-migraphx)]
-    ProcessManager -->|Spawn| CPU[CPU Worker (.venv-cpu)]
+    ProcessManager -->|Spawn + Dynamic Port| WorkerA[CUDA Worker]
+    ProcessManager -->|Spawn + Dynamic Port| WorkerB[MIGraphX Worker]
+    ProcessManager -->|Spawn + Dynamic Port| WorkerC[CPU Worker]
     
-    CUDA -->|Inference| Model1[Embedding Model A]
-    MIGraphX -->|Inference| Model2[Embedding Model B]
+    WorkerA -->|Inference| Model1[Embedding Model A]
+    WorkerB -->|Inference| Model2[Embedding Model B]
 ```
 
-## Installation & Setup
-Zephyr isolates environments automatically using provided scripts.
+## Installation
 
-**1. Create Environments:**
-Run the install script to generate dedicated virtual environments for CPU, CUDA, and MIGraphX.
-```bash
-./install.sh
-```
+Zephyr includes a setup script to create the necessary isolated virtual environments (`.venv-cpu`, `.venv-cuda`, `.venv-migraphx`).
 
-**2. Configure Models:**
-Assign each model to a specific engine in `config/config.yaml`.
-```yaml
-models:
-  bge-small-en-v1.5:
-    engine: "migraphx" # "cuda", "migraphx", or "cpu"
-```
+1. **Install Dependencies:**
+   ```bash
+   ./install.sh
+   # Creates virtual environments and installs dependencies per backend
+   ```
 
-**3. Run:**
-Start the main server. The Gateway will automatically spawn the necessary worker processes based on your config.
+2. **Configure Models:**
+   Edit `config/config.yaml` to define your models and their assigned engines.
+   ```yaml
+   models:
+     bge-small-en-v1.5:
+       repo: "Xenova/bge-small-en-v1.5"
+       engine: "migraphx"  # Options: "cuda", "migraphx", "cpu"
+       quantize: false
+   ```
 
-> [!TIP]
-> Use the **CPU environment** (`.venv-cpu`) to run the Gateway server. It is lightweight and has all necessary dependencies (including `onnxruntime` for quantization if needed).
+3. **Run the Server:**
+   Start the gateway. It will automatically bind to `0.0.0.0` for external access.
+   ```bash
+   export OPENAI_API_KEY=your_key
+   ./run.sh
+   ```
 
-```bash
-# Export your API key
-export OPENAI_API_KEY=your_key
+   The server will listen on port `8080`.
 
-# Run the server using the helper script
-./run.sh
-
-# Or manually:
-# source .venv-cpu/bin/activate
-# fastapi run server/main.py --port 8080
-```
-
-Key configs live in `config/config.yaml`—set per-model `repo`, `engine` (cuda/migraphx/cpu), `quantize`, and `owner`; adjust `cache` and `preload` to fit your deployment.
+## Configuration
+All settings are managed in `config/config.yaml`:
+- `cache`: Control `max_loaded_models` and cache directory.
+- `models`: Define model repositories, engines, and batch sizes.
+- `preload`: List models to load on startup.
 
 ## Contributing
-- Fork the repo and work on a branch in your fork.
-- Open a pull request to `main`; CI will run and we review/merge.
+- Fork the repository.
+- Submit a Pull Request to `main`.
